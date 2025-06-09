@@ -135,6 +135,61 @@ impl Database {
 
         Ok(rows_affected > 0)
     }
+
+    // Exchange rate management methods
+    pub fn get_exchange_rate(&self, base_currency: &str, target_currency: &str) -> Result<Option<(f64, String)>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT rate, fetched_at FROM exchange_rates WHERE base_currency = ?1 AND target_currency = ?2"
+        ).context("Failed to prepare exchange rate query")?;
+
+        let result = stmt.query_row([base_currency, target_currency], |row| {
+            Ok((
+                row.get::<_, f64>(0)?,
+                row.get::<_, String>(1)?,
+            ))
+        });
+
+        match result {
+            Ok(data) => Ok(Some(data)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into())
+        }
+    }
+
+    pub fn save_exchange_rate(&self, base_currency: &str, target_currency: &str, rate: f64, fetched_at: &str) -> Result<()> {
+        self.connection.execute(
+            "INSERT OR REPLACE INTO exchange_rates (base_currency, target_currency, rate, fetched_at) VALUES (?1, ?2, ?3, ?4)",
+            [base_currency, target_currency, &rate.to_string(), fetched_at]
+        ).context("Failed to save exchange rate")?;
+
+        Ok(())
+    }
+
+    pub fn get_supported_currencies(&self) -> Result<Vec<String>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT DISTINCT target_currency FROM exchange_rates ORDER BY target_currency"
+        ).context("Failed to prepare currency query")?;
+
+        let currency_iter = stmt.query_map([], |row| {
+            Ok(row.get::<_, String>(0)?)
+        }).context("Failed to execute currency query")?;
+
+        let mut results = Vec::new();
+        for currency in currency_iter {
+            results.push(currency.context("Failed to parse currency row")?);
+        }
+
+        Ok(results)
+    }
+
+    pub fn cleanup_exchange_rates(&self, cutoff_time: &str) -> Result<usize> {
+        let rows_affected = self.connection.execute(
+            "DELETE FROM exchange_rates WHERE fetched_at < ?1",
+            [cutoff_time]
+        ).context("Failed to cleanup exchange rates")?;
+
+        Ok(rows_affected)
+    }
 }
 
 #[cfg(test)]

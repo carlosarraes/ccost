@@ -6,6 +6,7 @@ use crate::analysis::usage::{ProjectUsage, ModelUsage};
 pub trait OutputFormat {
     fn to_table(&self) -> String;
     fn to_json(&self) -> Result<String, serde_json::Error>;
+    fn to_table_with_currency(&self, currency: &str, decimal_places: u8) -> String;
 }
 
 /// Row for project usage summary table
@@ -23,7 +24,7 @@ pub struct ProjectUsageRow {
     pub cache_read: String,
     #[tabled(rename = "Messages")]
     pub messages: String,
-    #[tabled(rename = "Total Cost (USD)")]
+    #[tabled(rename = "Total Cost")]
     pub total_cost: String,
 }
 
@@ -42,7 +43,7 @@ pub struct ModelUsageRow {
     pub cache_read: String,
     #[tabled(rename = "Messages")]
     pub messages: String,
-    #[tabled(rename = "Cost (USD)")]
+    #[tabled(rename = "Cost")]
     pub cost: String,
 }
 
@@ -58,6 +59,18 @@ impl ProjectUsageRow {
             total_cost: format_currency(usage.total_cost_usd),
         }
     }
+
+    pub fn from_project_usage_with_currency(usage: &ProjectUsage, currency: &str, decimal_places: u8) -> Self {
+        Self {
+            project: usage.project_name.clone(),
+            input_tokens: format_number(usage.total_input_tokens),
+            output_tokens: format_number(usage.total_output_tokens),
+            cache_creation: format_number(usage.total_cache_creation_tokens),
+            cache_read: format_number(usage.total_cache_read_tokens),
+            messages: format_number(usage.message_count),
+            total_cost: crate::models::currency::format_currency(usage.total_cost_usd, currency, decimal_places),
+        }
+    }
 }
 
 impl ModelUsageRow {
@@ -70,6 +83,18 @@ impl ModelUsageRow {
             cache_read: format_number(usage.cache_read_tokens),
             messages: format_number(usage.message_count),
             cost: format_currency(usage.cost_usd),
+        }
+    }
+
+    pub fn from_model_usage_with_currency(usage: &ModelUsage, currency: &str, decimal_places: u8) -> Self {
+        Self {
+            model: usage.model_name.clone(),
+            input_tokens: format_number(usage.input_tokens),
+            output_tokens: format_number(usage.output_tokens),
+            cache_creation: format_number(usage.cache_creation_tokens),
+            cache_read: format_number(usage.cache_read_tokens),
+            messages: format_number(usage.message_count),
+            cost: crate::models::currency::format_currency(usage.cost_usd, currency, decimal_places),
         }
     }
 }
@@ -90,6 +115,18 @@ impl OutputFormat for Vec<ProjectUsage> {
     fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
+
+    fn to_table_with_currency(&self, currency: &str, decimal_places: u8) -> String {
+        if self.is_empty() {
+            return "No usage data found.".to_string();
+        }
+        
+        let rows: Vec<ProjectUsageRow> = self.iter()
+            .map(|usage| ProjectUsageRow::from_project_usage_with_currency(usage, currency, decimal_places))
+            .collect();
+        
+        Table::new(rows).to_string()
+    }
 }
 
 impl OutputFormat for Vec<ModelUsage> {
@@ -107,6 +144,18 @@ impl OutputFormat for Vec<ModelUsage> {
     
     fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
+    }
+
+    fn to_table_with_currency(&self, currency: &str, decimal_places: u8) -> String {
+        if self.is_empty() {
+            return "No model usage data found.".to_string();
+        }
+        
+        let rows: Vec<ModelUsageRow> = self.iter()
+            .map(|usage| ModelUsageRow::from_model_usage_with_currency(usage, currency, decimal_places))
+            .collect();
+        
+        Table::new(rows).to_string()
     }
 }
 

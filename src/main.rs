@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use chrono::{DateTime, Utc, NaiveDate, TimeZone, Datelike};
 use config::Config;
 use models::{PricingManager, ModelPricing};
+use models::currency::CurrencyConverter;
 use storage::Database;
 use parser::jsonl::JsonlParser;
 use parser::deduplication::DeduplicationEngine;
@@ -463,6 +464,9 @@ fn handle_usage_command(
     since: Option<String>,
     until: Option<String>,
     model: Option<String>,
+    target_currency: &str,
+    cache_ttl_hours: u32,
+    decimal_places: u8,
     json_output: bool,
     verbose: bool,
 ) {
@@ -636,7 +640,58 @@ fn handle_usage_command(
     };
 
     // Apply remaining filters to the calculated usage
-    let filtered_usage = apply_usage_filters(project_usage, &usage_filter);
+    let mut filtered_usage = apply_usage_filters(project_usage, &usage_filter);
+    
+    // Convert currencies if needed
+    if target_currency != "USD" {
+        if let Ok(db_clone) = get_database() {
+            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+            
+            // Create an async runtime for currency conversion
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to create async runtime: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            };
+            
+            // Convert all USD amounts to target currency
+            for project in &mut filtered_usage {
+                match rt.block_on(currency_converter.convert_from_usd(project.total_cost_usd, target_currency)) {
+                    Ok(converted_cost) => {
+                        project.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, project.project_name, e);
+                            } else {
+                                eprintln!("Warning: Failed to convert currency for {}: {}", project.project_name, e);
+                            }
+                        }
+                        // Keep USD amounts if conversion fails
+                    }
+                }
+                
+                // Convert model-level costs too
+                for model_usage in project.model_usage.values_mut() {
+                    match rt.block_on(currency_converter.convert_from_usd(model_usage.cost_usd, target_currency)) {
+                        Ok(converted_cost) => {
+                            model_usage.cost_usd = converted_cost;
+                        }
+                        Err(_) => {
+                            // Keep USD amount if conversion fails
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     if filtered_usage.is_empty() {
         if json_output {
@@ -657,7 +712,7 @@ fn handle_usage_command(
             }
         }
     } else {
-        println!("{}", filtered_usage.to_table());
+        println!("{}", filtered_usage.to_table_with_currency(target_currency, decimal_places));
         
         // Show summary stats
         let total_cost: f64 = filtered_usage.iter().map(|p| p.total_cost_usd).sum();
@@ -671,7 +726,7 @@ fn handle_usage_command(
         println!("  Messages: {}", format_number(total_messages));
         println!("  Input Tokens: {}", format_number(total_input_tokens));
         println!("  Output Tokens: {}", format_number(total_output_tokens));
-        println!("  Total Cost: ${:.2}", total_cost);
+        println!("  Total Cost: {}", models::currency::format_currency(total_cost, target_currency, decimal_places));
     }
 }
 
@@ -826,26 +881,18 @@ fn format_number(n: u64) -> String {
 fn main() {
     let cli = Cli::parse();
     
-    // Handle global options
-    if cli.verbose {
-        println!("Verbose mode enabled");
-    }
+    // Load configuration
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Error: Failed to load configuration: {}", e);
+            std::process::exit(1);
+        }
+    };
     
-    if cli.json {
-        println!("JSON output mode enabled");
-    }
-    
-    if let Some(config_path) = &cli.config {
-        println!("Using config file: {}", config_path);
-    }
-    
-    if let Some(currency) = &cli.currency {
-        println!("Currency override: {}", currency);
-    }
-    
-    if let Some(timezone) = &cli.timezone {
-        println!("Timezone override: {}", timezone);
-    }
+    // Determine final currency (CLI override takes precedence)
+    let target_currency = cli.currency.as_ref()
+        .unwrap_or(&config.currency.default_currency);
     
     match cli.command {
         Commands::Usage { 
@@ -861,6 +908,9 @@ fn main() {
                 since, 
                 until, 
                 model, 
+                target_currency,
+                config.currency.cache_ttl_hours,
+                config.output.decimal_places,
                 cli.json,
                 cli.verbose
             );
