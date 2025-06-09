@@ -2,9 +2,18 @@ use std::path::Path;
 use rusqlite::Connection;
 use anyhow::{Result, Context};
 use crate::storage::migrations::apply_migrations;
+use crate::models::pricing::ModelPricing;
 
 pub struct Database {
     connection: Connection,
+}
+
+impl std::fmt::Debug for Database {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Database")
+            .field("connection", &"<SQLite Connection>")
+            .finish()
+    }
 }
 
 impl Database {
@@ -60,6 +69,71 @@ impl Database {
         ).context("Failed to mark message as processed")?;
 
         Ok(())
+    }
+
+    // Pricing management methods
+    pub fn save_model_pricing(&self, model_name: &str, pricing: &ModelPricing) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        self.connection.execute(
+            "INSERT OR REPLACE INTO model_pricing (model_name, input_cost_per_mtok, output_cost_per_mtok, cache_cost_per_mtok, last_updated) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![model_name, pricing.input_cost_per_mtok, pricing.output_cost_per_mtok, pricing.cache_cost_per_mtok, now]
+        ).context("Failed to save model pricing")?;
+
+        Ok(())
+    }
+
+    pub fn get_model_pricing(&self, model_name: &str) -> Result<Option<ModelPricing>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT input_cost_per_mtok, output_cost_per_mtok, cache_cost_per_mtok FROM model_pricing WHERE model_name = ?1"
+        ).context("Failed to prepare pricing query")?;
+
+        let result = stmt.query_row([model_name], |row| {
+            Ok(ModelPricing::new(
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?
+            ))
+        });
+
+        match result {
+            Ok(pricing) => Ok(Some(pricing)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into())
+        }
+    }
+
+    pub fn list_model_pricing(&self) -> Result<Vec<(String, ModelPricing)>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT model_name, input_cost_per_mtok, output_cost_per_mtok, cache_cost_per_mtok FROM model_pricing ORDER BY model_name"
+        ).context("Failed to prepare pricing list query")?;
+
+        let pricing_iter = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                ModelPricing::new(
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?
+                )
+            ))
+        }).context("Failed to execute pricing list query")?;
+
+        let mut results = Vec::new();
+        for pricing in pricing_iter {
+            results.push(pricing.context("Failed to parse pricing row")?);
+        }
+
+        Ok(results)
+    }
+
+    pub fn delete_model_pricing(&self, model_name: &str) -> Result<bool> {
+        let rows_affected = self.connection.execute(
+            "DELETE FROM model_pricing WHERE model_name = ?1",
+            [model_name]
+        ).context("Failed to delete model pricing")?;
+
+        Ok(rows_affected > 0)
     }
 }
 
@@ -178,5 +252,109 @@ mod tests {
         // Parent directories should now exist
         assert!(nested_path.parent().unwrap().exists());
         assert!(nested_path.exists());
+    }
+
+    #[test]
+    fn test_save_and_get_model_pricing() {
+        let (_temp_dir, db) = setup_test_db();
+        db.init_schema().unwrap();
+
+        let model_name = "test-model";
+        let pricing = ModelPricing::new(5.0, 25.0, 0.5);
+
+        // Save pricing
+        db.save_model_pricing(model_name, &pricing).unwrap();
+
+        // Retrieve pricing
+        let retrieved = db.get_model_pricing(model_name).unwrap().expect("Should have pricing");
+        
+        assert!((retrieved.input_cost_per_mtok - 5.0).abs() < 0.001);
+        assert!((retrieved.output_cost_per_mtok - 25.0).abs() < 0.001);
+        assert!((retrieved.cache_cost_per_mtok - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_get_nonexistent_model_pricing() {
+        let (_temp_dir, db) = setup_test_db();
+        db.init_schema().unwrap();
+
+        let result = db.get_model_pricing("nonexistent-model").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_update_model_pricing() {
+        let (_temp_dir, db) = setup_test_db();
+        db.init_schema().unwrap();
+
+        let model_name = "update-test-model";
+        let original_pricing = ModelPricing::new(3.0, 15.0, 0.3);
+        let updated_pricing = ModelPricing::new(4.0, 20.0, 0.4);
+
+        // Save original pricing
+        db.save_model_pricing(model_name, &original_pricing).unwrap();
+
+        // Update pricing
+        db.save_model_pricing(model_name, &updated_pricing).unwrap();
+
+        // Verify updated pricing
+        let retrieved = db.get_model_pricing(model_name).unwrap().expect("Should have pricing");
+        assert!((retrieved.input_cost_per_mtok - 4.0).abs() < 0.001);
+        assert!((retrieved.output_cost_per_mtok - 20.0).abs() < 0.001);
+        assert!((retrieved.cache_cost_per_mtok - 0.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_list_model_pricing() {
+        let (_temp_dir, db) = setup_test_db();
+        db.init_schema().unwrap();
+
+        // Add multiple model pricing entries
+        db.save_model_pricing("model-a", &ModelPricing::new(1.0, 5.0, 0.1)).unwrap();
+        db.save_model_pricing("model-b", &ModelPricing::new(2.0, 10.0, 0.2)).unwrap();
+        db.save_model_pricing("model-c", &ModelPricing::new(3.0, 15.0, 0.3)).unwrap();
+
+        let all_pricing = db.list_model_pricing().unwrap();
+        
+        assert_eq!(all_pricing.len(), 3);
+        
+        // Verify ordering (should be alphabetical by model name)
+        assert_eq!(all_pricing[0].0, "model-a");
+        assert_eq!(all_pricing[1].0, "model-b");
+        assert_eq!(all_pricing[2].0, "model-c");
+        
+        // Verify pricing values
+        assert!((all_pricing[0].1.input_cost_per_mtok - 1.0).abs() < 0.001);
+        assert!((all_pricing[1].1.input_cost_per_mtok - 2.0).abs() < 0.001);
+        assert!((all_pricing[2].1.input_cost_per_mtok - 3.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_delete_model_pricing() {
+        let (_temp_dir, db) = setup_test_db();
+        db.init_schema().unwrap();
+
+        let model_name = "delete-test-model";
+        let pricing = ModelPricing::new(5.0, 25.0, 0.5);
+
+        // Save pricing
+        db.save_model_pricing(model_name, &pricing).unwrap();
+        assert!(db.get_model_pricing(model_name).unwrap().is_some());
+
+        // Delete pricing
+        let deleted = db.delete_model_pricing(model_name).unwrap();
+        assert!(deleted);
+
+        // Verify deletion
+        assert!(db.get_model_pricing(model_name).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_delete_nonexistent_model_pricing() {
+        let (_temp_dir, db) = setup_test_db();
+        db.init_schema().unwrap();
+
+        let deleted = db.delete_model_pricing("nonexistent-model").unwrap();
+        assert!(!deleted);
     }
 }

@@ -1,6 +1,8 @@
 // ccost: Claude Cost Tracking Tool
 use clap::{Parser, Subcommand};
 use config::Config;
+use models::{PricingManager, ModelPricing};
+use storage::Database;
 
 // Module declarations
 mod config;
@@ -288,6 +290,161 @@ fn handle_config_action(action: ConfigAction, json_output: bool) {
     }
 }
 
+fn handle_pricing_action(action: PricingAction, json_output: bool) {
+    // Initialize database and pricing manager
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    let mut pricing_manager = PricingManager::with_database(database);
+
+    match action {
+        PricingAction::List => {
+            match pricing_manager.list_models() {
+                Ok(models) => {
+                    if json_output {
+                        let mut pricing_list = Vec::new();
+                        for model_name in &models {
+                            if let Some(pricing) = pricing_manager.get_pricing(model_name) {
+                                pricing_list.push(serde_json::json!({
+                                    "model": model_name,
+                                    "input_cost_per_mtok": pricing.input_cost_per_mtok,
+                                    "output_cost_per_mtok": pricing.output_cost_per_mtok,
+                                    "cache_cost_per_mtok": pricing.cache_cost_per_mtok
+                                }));
+                            }
+                        }
+                        match serde_json::to_string_pretty(&pricing_list) {
+                            Ok(json) => println!("{}", json),
+                            Err(e) => {
+                                println!(r#"{{"status": "error", "message": "Failed to serialize pricing data: {}"}}"#, e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        println!("Model Pricing (per Million Tokens):");
+                        println!("{:<30} {:<12} {:<12} {:<12}", "Model", "Input ($)", "Output ($)", "Cache ($)");
+                        println!("{}", "-".repeat(78));
+                        
+                        for model_name in models {
+                            if let Some(pricing) = pricing_manager.get_pricing(&model_name) {
+                                println!(
+                                    "{:<30} {:<12.2} {:<12.2} {:<12.2}",
+                                    model_name,
+                                    pricing.input_cost_per_mtok,
+                                    pricing.output_cost_per_mtok,
+                                    pricing.cache_cost_per_mtok
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to list models: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to list models: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+        PricingAction::Update { source } => {
+            match source {
+                Some(PricingSource::Github) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "GitHub pricing updates not yet implemented (TASK-014)"}}"#);
+                    } else {
+                        eprintln!("Error: GitHub pricing updates not yet implemented (TASK-014)");
+                    }
+                }
+                Some(PricingSource::Scrape) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Web scraping for pricing not yet implemented (TASK-018)"}}"#);
+                    } else {
+                        eprintln!("Error: Web scraping for pricing not yet implemented (TASK-018)");
+                    }
+                }
+                None => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Automatic pricing updates not yet implemented"}}"#);
+                    } else {
+                        eprintln!("Error: Automatic pricing updates not yet implemented");
+                    }
+                }
+            }
+            std::process::exit(1);
+        }
+        PricingAction::Set { model, input_price, output_price } => {
+            // Parse pricing values
+            let input_cost = match input_price.parse::<f64>() {
+                Ok(price) => price,
+                Err(_) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Invalid input price format. Expected a number."}}"#);
+                    } else {
+                        eprintln!("Error: Invalid input price format. Expected a number.");
+                    }
+                    std::process::exit(1);
+                }
+            };
+
+            let output_cost = match output_price.parse::<f64>() {
+                Ok(price) => price,
+                Err(_) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Invalid output price format. Expected a number."}}"#);
+                    } else {
+                        eprintln!("Error: Invalid output price format. Expected a number.");
+                    }
+                    std::process::exit(1);
+                }
+            };
+
+            // Use default cache cost (10% of input cost)
+            let cache_cost = input_cost * 0.1;
+            let pricing = ModelPricing::new(input_cost, output_cost, cache_cost);
+
+            match pricing_manager.set_pricing(model.clone(), pricing) {
+                Ok(()) => {
+                    if json_output {
+                        println!(r#"{{"status": "success", "message": "Pricing set for model: {}"}}"#, model);
+                    } else {
+                        println!("Successfully set pricing for model: {}", model);
+                        println!("  Input:  ${:.2} per million tokens", input_cost);
+                        println!("  Output: ${:.2} per million tokens", output_cost);
+                        println!("  Cache:  ${:.2} per million tokens (auto-calculated)", cache_cost);
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to set pricing: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to set pricing: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+}
+
+fn get_database() -> anyhow::Result<Database> {
+    let db_path = dirs::config_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap())
+        .join("ccost")
+        .join("cache.db");
+    Database::new(&db_path)
+}
+
 fn main() {
     let cli = Cli::parse();
     
@@ -397,25 +554,7 @@ fn main() {
             handle_config_action(action, cli.json);
         }
         Commands::Pricing { action } => {
-            println!("Pricing management");
-            
-            match action {
-                PricingAction::List => {
-                    println!("  Listing current pricing");
-                }
-                PricingAction::Update { source } => {
-                    match source {
-                        Some(PricingSource::Github) => println!("  Updating from GitHub"),
-                        Some(PricingSource::Scrape) => println!("  Updating via web scraping"),
-                        None => println!("  Updating from all sources"),
-                    }
-                }
-                PricingAction::Set { model, input_price, output_price } => {
-                    println!("  Setting pricing for {}: input={}, output={}", model, input_price, output_price);
-                }
-            }
-            
-            println!("  TODO: Implement in TASK-008");
+            handle_pricing_action(action, cli.json);
         }
     }
 }
