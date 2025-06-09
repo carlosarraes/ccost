@@ -5,6 +5,7 @@ pub mod timeline;
 
 // Re-export key types for easier access
 pub use usage::{UsageTracker, ProjectUsage, ModelUsage, UsageFilter, CostCalculationMode};
+pub use projects::{ProjectAnalyzer, ProjectSummary, ProjectSortBy, ProjectStatistics};
 
 #[cfg(test)]
 mod integration_tests {

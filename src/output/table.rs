@@ -1,6 +1,7 @@
 use tabled::{Table, Tabled};
 use serde::Serialize;
 use crate::analysis::usage::{ProjectUsage, ModelUsage};
+use crate::analysis::projects::ProjectSummary;
 
 /// Trait for items that can be displayed as tables or JSON
 pub trait OutputFormat {
@@ -45,6 +46,21 @@ pub struct ModelUsageRow {
     pub messages: String,
     #[tabled(rename = "Cost")]
     pub cost: String,
+}
+
+/// Row for project summary table (simplified view)
+#[derive(Tabled, Serialize, Debug)]
+pub struct ProjectSummaryRow {
+    #[tabled(rename = "Project")]
+    pub project: String,
+    #[tabled(rename = "Total Tokens")]
+    pub total_tokens: String,
+    #[tabled(rename = "Messages")]
+    pub messages: String,
+    #[tabled(rename = "Models")]
+    pub models: String,
+    #[tabled(rename = "Total Cost")]
+    pub total_cost: String,
 }
 
 impl ProjectUsageRow {
@@ -95,6 +111,30 @@ impl ModelUsageRow {
             cache_read: format_number(usage.cache_read_tokens),
             messages: format_number(usage.message_count),
             cost: crate::models::currency::format_currency(usage.cost_usd, currency, decimal_places),
+        }
+    }
+}
+
+impl ProjectSummaryRow {
+    pub fn from_project_summary(summary: &ProjectSummary) -> Self {
+        let total_tokens = summary.total_input_tokens + summary.total_output_tokens;
+        Self {
+            project: summary.project_name.clone(),
+            total_tokens: format_number(total_tokens),
+            messages: format_number(summary.message_count),
+            models: summary.model_count.to_string(),
+            total_cost: format_currency(summary.total_cost_usd),
+        }
+    }
+
+    pub fn from_project_summary_with_currency(summary: &ProjectSummary, currency: &str, decimal_places: u8) -> Self {
+        let total_tokens = summary.total_input_tokens + summary.total_output_tokens;
+        Self {
+            project: summary.project_name.clone(),
+            total_tokens: format_number(total_tokens),
+            messages: format_number(summary.message_count),
+            models: summary.model_count.to_string(),
+            total_cost: crate::models::currency::format_currency(summary.total_cost_usd, currency, decimal_places),
         }
     }
 }
@@ -153,6 +193,36 @@ impl OutputFormat for Vec<ModelUsage> {
         
         let rows: Vec<ModelUsageRow> = self.iter()
             .map(|usage| ModelUsageRow::from_model_usage_with_currency(usage, currency, decimal_places))
+            .collect();
+        
+        Table::new(rows).to_string()
+    }
+}
+
+impl OutputFormat for Vec<ProjectSummary> {
+    fn to_table(&self) -> String {
+        if self.is_empty() {
+            return "No project data found.".to_string();
+        }
+        
+        let rows: Vec<ProjectSummaryRow> = self.iter()
+            .map(ProjectSummaryRow::from_project_summary)
+            .collect();
+        
+        Table::new(rows).to_string()
+    }
+    
+    fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    fn to_table_with_currency(&self, currency: &str, decimal_places: u8) -> String {
+        if self.is_empty() {
+            return "No project data found.".to_string();
+        }
+        
+        let rows: Vec<ProjectSummaryRow> = self.iter()
+            .map(|summary| ProjectSummaryRow::from_project_summary_with_currency(summary, currency, decimal_places))
             .collect();
         
         Table::new(rows).to_string()
@@ -307,5 +377,99 @@ mod tests {
         assert!(json.contains("claude-3-5-sonnet"));
         assert!(json.contains("100"));
         assert!(json.contains("1.25"));
+    }
+
+    #[test]
+    fn test_project_summary_row_creation() {
+        let project_summary = ProjectSummary {
+            project_name: "test-project".to_string(),
+            total_input_tokens: 1500,
+            total_output_tokens: 750,
+            total_cost_usd: 3.75,
+            message_count: 15,
+            model_count: 2,
+        };
+
+        let row = ProjectSummaryRow::from_project_summary(&project_summary);
+        assert_eq!(row.project, "test-project");
+        assert_eq!(row.total_tokens, "2,250"); // 1500 + 750
+        assert_eq!(row.messages, "15");
+        assert_eq!(row.models, "2");
+        assert_eq!(row.total_cost, "$3.75");
+    }
+
+    #[test]
+    fn test_project_summary_row_with_currency() {
+        let project_summary = ProjectSummary {
+            project_name: "euro-project".to_string(),
+            total_input_tokens: 2000,
+            total_output_tokens: 1000,
+            total_cost_usd: 5.0, // Actually converted EUR value
+            message_count: 20,
+            model_count: 3,
+        };
+
+        let row = ProjectSummaryRow::from_project_summary_with_currency(&project_summary, "EUR", 2);
+        assert_eq!(row.project, "euro-project");
+        assert_eq!(row.total_tokens, "3,000"); // 2000 + 1000
+        assert_eq!(row.messages, "20");
+        assert_eq!(row.models, "3");
+        assert_eq!(row.total_cost, "5.00 €");
+    }
+
+    #[test]
+    fn test_project_summaries_table_output() {
+        let project_summaries = vec![
+            ProjectSummary {
+                project_name: "project-a".to_string(),
+                total_input_tokens: 1000,
+                total_output_tokens: 500,
+                total_cost_usd: 2.5,
+                message_count: 10,
+                model_count: 1,
+            },
+            ProjectSummary {
+                project_name: "project-b".to_string(),
+                total_input_tokens: 2000,
+                total_output_tokens: 1000,
+                total_cost_usd: 5.0,
+                message_count: 20,
+                model_count: 2,
+            },
+        ];
+
+        let table = project_summaries.to_table();
+        assert!(table.contains("project-a"));
+        assert!(table.contains("project-b"));
+        assert!(table.contains("1,500")); // total tokens for project-a
+        assert!(table.contains("3,000")); // total tokens for project-b
+        assert!(table.contains("$2.50"));
+        assert!(table.contains("$5.00"));
+    }
+
+    #[test]
+    fn test_empty_project_summaries_table() {
+        let empty_summaries: Vec<ProjectSummary> = vec![];
+        assert_eq!(empty_summaries.to_table(), "No project data found.");
+    }
+
+    #[test]
+    fn test_project_summaries_json_output() {
+        let project_summaries = vec![ProjectSummary {
+            project_name: "json-test".to_string(),
+            total_input_tokens: 800,
+            total_output_tokens: 400,
+            total_cost_usd: 1.75,
+            message_count: 8,
+            model_count: 1,
+        }];
+
+        let json = project_summaries.to_json().unwrap();
+        assert!(json.contains("json-test"));
+        assert!(json.contains("800"));
+        assert!(json.contains("400"));
+        assert!(json.contains("1.75"));
+        assert!(json.contains("8"));
+        assert!(json.contains("1"));
     }
 }

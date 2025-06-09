@@ -2,4 +2,4 @@
 pub mod table;
 pub mod export;
 
-pub use table::{OutputFormat, ProjectUsageRow, ModelUsageRow};
+pub use table::{OutputFormat, ProjectUsageRow, ModelUsageRow, ProjectSummaryRow};

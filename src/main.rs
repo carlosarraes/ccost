@@ -7,7 +7,7 @@ use models::currency::CurrencyConverter;
 use storage::Database;
 use parser::jsonl::JsonlParser;
 use parser::deduplication::DeduplicationEngine;
-use analysis::{UsageTracker, UsageFilter, CostCalculationMode};
+use analysis::{UsageTracker, UsageFilter, CostCalculationMode, ProjectAnalyzer, ProjectSortBy};
 use output::OutputFormat;
 
 // Module declarations
@@ -859,6 +859,256 @@ fn apply_usage_filters(
         .collect()
 }
 
+fn handle_projects_command(
+    sort_by: Option<ProjectSort>,
+    target_currency: &str,
+    cache_ttl_hours: u32,
+    decimal_places: u8,
+    json_output: bool,
+    verbose: bool,
+) {
+    // Initialize database and components
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Find and parse JSONL files
+    let projects_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap())
+        .join(".claude")
+        .join("projects");
+
+    let pricing_manager = PricingManager::with_database(database);
+    let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
+    let parser = JsonlParser::new(projects_dir.clone());
+    let mut dedup_engine = DeduplicationEngine::new();
+    let project_analyzer = ProjectAnalyzer::new();
+
+    if verbose && !json_output {
+        println!("Searching for JSONL files in: {}", projects_dir.display());
+    }
+
+    let jsonl_files = match parser.find_jsonl_files() {
+        Ok(files) => files,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to find JSONL files: {}", e);
+                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if jsonl_files.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "warning", "message": "No JSONL files found", "data": []}}"#);
+        } else {
+            println!("No Claude usage data found in {}", projects_dir.display());
+            println!("Make sure you have conversations saved in Claude Desktop or CLI.");
+        }
+        return;
+    }
+
+    if verbose && !json_output {
+        println!("Found {} JSONL files", jsonl_files.len());
+    }
+
+    // Parse all files with deduplication
+    let mut all_usage_data = Vec::new();
+    let mut files_processed = 0;
+    let mut total_messages = 0;
+    let mut unique_messages = 0;
+
+    for file_path in jsonl_files {
+        // Extract project name from file path
+        let project_name = match parser.extract_project_path(&file_path) {
+            Ok(project_path) => project_path.to_string_lossy().to_string(),
+            Err(_) => "Unknown".to_string(),
+        };
+
+        match parser.parse_file(&file_path) {
+            Ok(parsed_conversation) => {
+                total_messages += parsed_conversation.messages.len();
+                
+                // Apply deduplication
+                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                    Ok(unique_data) => {
+                        unique_messages += unique_data.len();
+                        
+                        // Create enhanced usage data with project name
+                        for data in unique_data {
+                            let enhanced_data = EnhancedUsageData {
+                                usage_data: data,
+                                project_name: project_name.clone(),
+                            };
+                            all_usage_data.push(enhanced_data);
+                        }
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                            } else {
+                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                            }
+                        }
+                        continue;
+                    }
+                }
+                
+                files_processed += 1;
+            }
+            Err(e) => {
+                if verbose {
+                    if json_output {
+                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                    } else {
+                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+
+    if verbose && !json_output {
+        println!("Processed {} files, {} total messages, {} unique messages", 
+                 files_processed, total_messages, unique_messages);
+    }
+
+    if all_usage_data.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No usage data found", "data": []}}"#);
+        } else {
+            println!("No usage data found in your Claude projects.");
+        }
+        return;
+    }
+
+    // Convert enhanced data to tuple format
+    let usage_tuples: Vec<(parser::jsonl::UsageData, String)> = all_usage_data
+        .into_iter()
+        .map(|enhanced| (enhanced.usage_data, enhanced.project_name))
+        .collect();
+
+    // Calculate usage with the tracker
+    let project_usage = match usage_tracker.calculate_usage_with_projects(usage_tuples, &pricing_manager) {
+        Ok(usage) => usage,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to calculate usage: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to calculate usage: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if project_usage.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No project usage found", "data": []}}"#);
+        } else {
+            println!("No project usage data found.");
+        }
+        return;
+    }
+
+    // Determine sort method
+    let sort_method = match sort_by {
+        Some(ProjectSort::Cost) => ProjectSortBy::Cost,
+        Some(ProjectSort::Tokens) => ProjectSortBy::Tokens,
+        None => ProjectSortBy::Name,
+    };
+
+    // Analyze and sort projects
+    let mut project_summaries = project_analyzer.analyze_projects(project_usage, sort_method);
+    
+    // Convert currencies if needed
+    if target_currency != "USD" {
+        if let Ok(db_clone) = get_database() {
+            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+            
+            // Create an async runtime for currency conversion
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to create async runtime: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            };
+            
+            // Convert all USD amounts to target currency
+            for summary in &mut project_summaries {
+                match rt.block_on(currency_converter.convert_from_usd(summary.total_cost_usd, target_currency)) {
+                    Ok(converted_cost) => {
+                        summary.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, summary.project_name, e);
+                            } else {
+                                eprintln!("Warning: Failed to convert currency for {}: {}", summary.project_name, e);
+                            }
+                        }
+                        // Keep USD amounts if conversion fails
+                    }
+                }
+            }
+        }
+    }
+
+    // Get statistics  
+    let stats = project_analyzer.get_project_statistics(&project_summaries);
+
+    // Display results
+    if json_output {
+        let json_output = serde_json::json!({
+            "projects": project_summaries,
+            "statistics": stats
+        });
+        match serde_json::to_string_pretty(&json_output) {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("{}", project_summaries.to_table_with_currency(target_currency, decimal_places));
+        
+        // Show summary stats
+        println!();
+        println!("Summary:");
+        println!("  Total Projects: {}", stats.total_projects);
+        println!("  Total Input Tokens: {}", format_number(stats.total_input_tokens));
+        println!("  Total Output Tokens: {}", format_number(stats.total_output_tokens));
+        println!("  Total Messages: {}", format_number(stats.total_messages));
+        println!("  Total Cost: {}", models::currency::format_currency(stats.total_cost, target_currency, decimal_places));
+        
+        if let Some(ref highest_cost) = stats.highest_cost_project {
+            println!("  Highest Cost Project: {}", highest_cost);
+        }
+        
+        if let Some(ref most_active) = stats.most_active_project {
+            println!("  Most Active Project: {}", most_active);
+        }
+    }
+}
+
 fn format_number(n: u64) -> String {
     if n == 0 {
         return "0".to_string();
@@ -916,15 +1166,14 @@ fn main() {
             );
         }
         Commands::Projects { sort_by } => {
-            println!("Projects analysis");
-            
-            match sort_by {
-                Some(ProjectSort::Cost) => println!("  Sorted by cost"),
-                Some(ProjectSort::Tokens) => println!("  Sorted by tokens"),
-                None => println!("  Default sorting (by name)"),
-            }
-            
-            println!("  TODO: Implement in TASK-012");
+            handle_projects_command(
+                sort_by,
+                target_currency,
+                config.currency.cache_ttl_hours,
+                config.output.decimal_places,
+                cli.json,
+                cli.verbose
+            );
         }
         Commands::Config { action } => {
             handle_config_action(action, cli.json);
