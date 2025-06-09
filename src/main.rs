@@ -1,8 +1,13 @@
 // ccost: Claude Cost Tracking Tool
 use clap::{Parser, Subcommand};
+use chrono::{DateTime, Utc, NaiveDate, TimeZone, Datelike};
 use config::Config;
 use models::{PricingManager, ModelPricing};
 use storage::Database;
+use parser::jsonl::JsonlParser;
+use parser::deduplication::DeduplicationEngine;
+use analysis::{UsageTracker, UsageFilter, CostCalculationMode};
+use output::OutputFormat;
 
 // Module declarations
 mod config;
@@ -12,6 +17,13 @@ mod models;
 mod analysis;
 mod output;
 mod sync;
+
+// Helper structure to associate usage data with project name
+#[derive(Debug, Clone)]
+struct EnhancedUsageData {
+    usage_data: parser::jsonl::UsageData,
+    project_name: String,
+}
 
 #[derive(Parser)]
 #[command(name = "ccost")]
@@ -445,6 +457,372 @@ fn get_database() -> anyhow::Result<Database> {
     Database::new(&db_path)
 }
 
+fn handle_usage_command(
+    timeframe: Option<UsageTimeframe>,
+    project: Option<String>,
+    since: Option<String>,
+    until: Option<String>,
+    model: Option<String>,
+    json_output: bool,
+    verbose: bool,
+) {
+    // Initialize database and components
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Find and parse JSONL files
+    let projects_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap())
+        .join(".claude")
+        .join("projects");
+
+    let pricing_manager = PricingManager::with_database(database);
+    let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
+    let parser = JsonlParser::new(projects_dir.clone());
+    let mut dedup_engine = DeduplicationEngine::new();
+
+    // Parse timeframe into date filters
+    let (final_project, final_since, final_until, final_model) = 
+        resolve_filters(timeframe, project, since, until, model);
+
+    // Create usage filter
+    let usage_filter = UsageFilter {
+        project_name: final_project.clone(),
+        model_name: final_model.clone(),
+        since: final_since,
+        until: final_until,
+    };
+
+    if verbose {
+        print_filter_info(&usage_filter, json_output);
+    }
+
+    if verbose && !json_output {
+        println!("Searching for JSONL files in: {}", projects_dir.display());
+    }
+
+    let jsonl_files = match parser.find_jsonl_files() {
+        Ok(files) => files,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to find JSONL files: {}", e);
+                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if jsonl_files.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "warning", "message": "No JSONL files found", "data": []}}"#);
+        } else {
+            println!("No Claude usage data found in {}", projects_dir.display());
+            println!("Make sure you have conversations saved in Claude Desktop or CLI.");
+        }
+        return;
+    }
+
+    if verbose && !json_output {
+        println!("Found {} JSONL files", jsonl_files.len());
+    }
+
+    // Parse all files with deduplication
+    let mut all_usage_data = Vec::new();
+    let mut files_processed = 0;
+    let mut total_messages = 0;
+    let mut unique_messages = 0;
+
+    for file_path in jsonl_files {
+        // Extract project name from file path
+        let project_name = match parser.extract_project_path(&file_path) {
+            Ok(project_path) => project_path.to_string_lossy().to_string(),
+            Err(_) => "Unknown".to_string(),
+        };
+
+        // Apply project filter early if specified
+        if let Some(ref filter_project) = final_project {
+            if project_name != *filter_project {
+                continue;
+            }
+        }
+
+        match parser.parse_file(&file_path) {
+            Ok(parsed_conversation) => {
+                total_messages += parsed_conversation.messages.len();
+                
+                // Apply deduplication
+                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                    Ok(unique_data) => {
+                        unique_messages += unique_data.len();
+                        
+                        // Create enhanced usage data with project name
+                        for data in unique_data {
+                            // Create an enhanced usage data structure
+                            let enhanced_data = EnhancedUsageData {
+                                usage_data: data,
+                                project_name: project_name.clone(),
+                            };
+                            all_usage_data.push(enhanced_data);
+                        }
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                            } else {
+                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                            }
+                        }
+                        continue;
+                    }
+                }
+                
+                files_processed += 1;
+            }
+            Err(e) => {
+                if verbose {
+                    if json_output {
+                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                    } else {
+                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+
+    if verbose && !json_output {
+        println!("Processed {} files, {} total messages, {} unique messages", 
+                 files_processed, total_messages, unique_messages);
+    }
+
+    if all_usage_data.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+        } else {
+            println!("No usage data found matching your filters.");
+        }
+        return;
+    }
+
+    // Convert enhanced data to tuple format
+    let usage_tuples: Vec<(parser::jsonl::UsageData, String)> = all_usage_data
+        .into_iter()
+        .map(|enhanced| (enhanced.usage_data, enhanced.project_name))
+        .collect();
+
+    // Calculate usage with the tracker
+    let project_usage = match usage_tracker.calculate_usage_with_projects(usage_tuples, &pricing_manager) {
+        Ok(usage) => usage,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to calculate usage: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to calculate usage: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Apply remaining filters to the calculated usage
+    let filtered_usage = apply_usage_filters(project_usage, &usage_filter);
+
+    if filtered_usage.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+        } else {
+            println!("No usage data found matching your filters.");
+        }
+        return;
+    }
+
+    // Display results
+    if json_output {
+        match filtered_usage.to_json() {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("{}", filtered_usage.to_table());
+        
+        // Show summary stats
+        let total_cost: f64 = filtered_usage.iter().map(|p| p.total_cost_usd).sum();
+        let total_messages: u64 = filtered_usage.iter().map(|p| p.message_count).sum();
+        let total_input_tokens: u64 = filtered_usage.iter().map(|p| p.total_input_tokens).sum();
+        let total_output_tokens: u64 = filtered_usage.iter().map(|p| p.total_output_tokens).sum();
+        
+        println!();
+        println!("Summary:");
+        println!("  Projects: {}", filtered_usage.len());
+        println!("  Messages: {}", format_number(total_messages));
+        println!("  Input Tokens: {}", format_number(total_input_tokens));
+        println!("  Output Tokens: {}", format_number(total_output_tokens));
+        println!("  Total Cost: ${:.2}", total_cost);
+    }
+}
+
+fn resolve_filters(
+    timeframe: Option<UsageTimeframe>,
+    project: Option<String>,
+    since: Option<String>,
+    until: Option<String>,
+    model: Option<String>,
+) -> (Option<String>, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>) {
+    let (tf_project, tf_model, tf_since, tf_until) = match timeframe {
+        Some(UsageTimeframe::Today { project: tf_project, model: tf_model }) => {
+            let today = Utc::now().date_naive();
+            let start = Utc.from_utc_datetime(&today.and_hms_opt(0, 0, 0).unwrap());
+            let end = Utc.from_utc_datetime(&today.and_hms_opt(23, 59, 59).unwrap());
+            (tf_project, tf_model, Some(start), Some(end))
+        },
+        Some(UsageTimeframe::Yesterday { project: tf_project, model: tf_model }) => {
+            let yesterday = Utc::now().date_naive() - chrono::Duration::days(1);
+            let start = Utc.from_utc_datetime(&yesterday.and_hms_opt(0, 0, 0).unwrap());
+            let end = Utc.from_utc_datetime(&yesterday.and_hms_opt(23, 59, 59).unwrap());
+            (tf_project, tf_model, Some(start), Some(end))
+        },
+        Some(UsageTimeframe::ThisWeek { project: tf_project, model: tf_model }) => {
+            let today = Utc::now().date_naive();
+            let days_since_monday = today.weekday().num_days_from_monday();
+            let monday = today - chrono::Duration::days(days_since_monday as i64);
+            let start = Utc.from_utc_datetime(&monday.and_hms_opt(0, 0, 0).unwrap());
+            (tf_project, tf_model, Some(start), None)
+        },
+        Some(UsageTimeframe::ThisMonth { project: tf_project, model: tf_model }) => {
+            let today = Utc::now().date_naive();
+            let first_of_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap();
+            let start = Utc.from_utc_datetime(&first_of_month.and_hms_opt(0, 0, 0).unwrap());
+            (tf_project, tf_model, Some(start), None)
+        },
+        None => (None, None, None, None),
+    };
+
+    // Merge timeframe filters with explicit filters
+    let final_project = tf_project.or(project);
+    let final_model = tf_model.or(model);
+    
+    // Parse explicit date filters
+    let final_since = tf_since.or_else(|| {
+        since.and_then(|s| {
+            NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                .ok()
+                .map(|date| Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap()))
+        })
+    });
+    
+    let final_until = tf_until.or_else(|| {
+        until.and_then(|s| {
+            NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                .ok()
+                .map(|date| Utc.from_utc_datetime(&date.and_hms_opt(23, 59, 59).unwrap()))
+        })
+    });
+
+    (final_project, final_since, final_until, final_model)
+}
+
+fn print_filter_info(filter: &UsageFilter, json_output: bool) {
+    if json_output {
+        return; // Skip verbose info in JSON mode
+    }
+    
+    println!("Filters applied:");
+    if let Some(ref project) = filter.project_name {
+        println!("  Project: {}", project);
+    }
+    if let Some(ref model) = filter.model_name {
+        println!("  Model: {}", model);
+    }
+    if let Some(ref since) = filter.since {
+        println!("  Since: {}", since.format("%Y-%m-%d %H:%M"));
+    }
+    if let Some(ref until) = filter.until {
+        println!("  Until: {}", until.format("%Y-%m-%d %H:%M"));
+    }
+    println!();
+}
+
+fn apply_usage_filters(
+    usage: Vec<analysis::usage::ProjectUsage>, 
+    filter: &UsageFilter
+) -> Vec<analysis::usage::ProjectUsage> {
+    usage.into_iter()
+        .filter(|project| {
+            // Project filter already applied during parsing
+            if let Some(ref model_filter) = filter.model_name {
+                // If model filter specified, only include projects that have usage for that model
+                project.model_usage.contains_key(model_filter)
+            } else {
+                true
+            }
+        })
+        .map(|mut project| {
+            // If model filter is specified, filter model usage within each project
+            if let Some(ref model_filter) = filter.model_name {
+                let filtered_model_usage: std::collections::HashMap<String, analysis::usage::ModelUsage> = 
+                    project.model_usage.into_iter()
+                        .filter(|(model_name, _)| model_name == model_filter)
+                        .collect();
+                
+                // Recalculate project totals based on filtered models
+                let total_input_tokens = filtered_model_usage.values().map(|m| m.input_tokens).sum();
+                let total_output_tokens = filtered_model_usage.values().map(|m| m.output_tokens).sum();
+                let total_cache_creation_tokens = filtered_model_usage.values().map(|m| m.cache_creation_tokens).sum();
+                let total_cache_read_tokens = filtered_model_usage.values().map(|m| m.cache_read_tokens).sum();
+                let total_cost_usd = filtered_model_usage.values().map(|m| m.cost_usd).sum();
+                let message_count = filtered_model_usage.values().map(|m| m.message_count).sum();
+                
+                project.model_usage = filtered_model_usage;
+                project.total_input_tokens = total_input_tokens;
+                project.total_output_tokens = total_output_tokens;
+                project.total_cache_creation_tokens = total_cache_creation_tokens;
+                project.total_cache_read_tokens = total_cache_read_tokens;
+                project.total_cost_usd = total_cost_usd;
+                project.message_count = message_count;
+            }
+            
+            project
+        })
+        .filter(|project| {
+            // Remove projects with no usage after model filtering
+            project.message_count > 0
+        })
+        .collect()
+}
+
+fn format_number(n: u64) -> String {
+    if n == 0 {
+        return "0".to_string();
+    }
+    
+    let mut result = String::new();
+    let s = n.to_string();
+    let chars: Vec<char> = s.chars().collect();
+    
+    for (i, ch) in chars.iter().enumerate() {
+        if i > 0 && (chars.len() - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(*ch);
+    }
+    
+    result
+}
+
 fn main() {
     let cli = Cli::parse();
     
@@ -477,67 +855,15 @@ fn main() {
             until, 
             model
         } => {
-            println!("Usage analysis");
-            
-            match timeframe {
-                Some(UsageTimeframe::Today { project: tf_project, model: tf_model }) => {
-                    println!("  Showing today's usage");
-                    if let Some(proj) = tf_project {
-                        println!("  Project filter: {}", proj);
-                    }
-                    if let Some(m) = tf_model {
-                        println!("  Model filter: {}", m);
-                    }
-                },
-                Some(UsageTimeframe::Yesterday { project: tf_project, model: tf_model }) => {
-                    println!("  Showing yesterday's usage");
-                    if let Some(proj) = tf_project {
-                        println!("  Project filter: {}", proj);
-                    }
-                    if let Some(m) = tf_model {
-                        println!("  Model filter: {}", m);
-                    }
-                },
-                Some(UsageTimeframe::ThisWeek { project: tf_project, model: tf_model }) => {
-                    println!("  Showing this week's usage");
-                    if let Some(proj) = tf_project {
-                        println!("  Project filter: {}", proj);
-                    }
-                    if let Some(m) = tf_model {
-                        println!("  Model filter: {}", m);
-                    }
-                },
-                Some(UsageTimeframe::ThisMonth { project: tf_project, model: tf_model }) => {
-                    println!("  Showing this month's usage");
-                    if let Some(proj) = tf_project {
-                        println!("  Project filter: {}", proj);
-                    }
-                    if let Some(m) = tf_model {
-                        println!("  Model filter: {}", m);
-                    }
-                },
-                None => {
-                    println!("  Showing all usage (use date filters or timeframe subcommand)");
-                    
-                    if let Some(proj) = project {
-                        println!("  Project filter: {}", proj);
-                    }
-                    
-                    if let Some(start) = since {
-                        println!("  Since: {}", start);
-                    }
-                    
-                    if let Some(end) = until {
-                        println!("  Until: {}", end);
-                    }
-                    
-                    if let Some(m) = model {
-                        println!("  Model filter: {}", m);
-                    }
-                },
-            }
-            
-            println!("  TODO: Implement in TASK-011");
+            handle_usage_command(
+                timeframe, 
+                project, 
+                since, 
+                until, 
+                model, 
+                cli.json,
+                cli.verbose
+            );
         }
         Commands::Projects { sort_by } => {
             println!("Projects analysis");

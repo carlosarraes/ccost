@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use anyhow::{Result, Context};
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use crate::parser::jsonl::{UsageData, Usage};
 use crate::storage::Database;
 
@@ -11,7 +12,7 @@ pub enum CostCalculationMode {
     Display,    // Use embedded costUSD only, 0 if missing
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProjectUsage {
     pub project_name: String,
     pub total_input_tokens: u64,
@@ -23,7 +24,7 @@ pub struct ProjectUsage {
     pub message_count: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ModelUsage {
     pub model_name: String,
     pub input_tokens: u64,
@@ -117,12 +118,14 @@ impl UsageTracker {
                     if let Some(embedded_cost) = message.cost_usd {
                         embedded_cost
                     } else {
-                        self.calculate_cost(usage, &model_name)?
+                        // For now, we'll use 0.0 until we have pricing manager here
+                        0.0
                     }
                 }
                 CostCalculationMode::Calculate => {
                     // Always calculate from tokens
-                    self.calculate_cost(usage, &model_name)?
+                    // For now, we'll use 0.0 until we have pricing manager here
+                    0.0
                 }
             };
 
@@ -133,11 +136,176 @@ impl UsageTracker {
         Ok(project_usage)
     }
 
-    pub fn calculate_cost(&self, usage: &Usage, model_name: &str) -> Result<f64> {
-        // For now, return 0.0 as we don't have pricing data yet
-        // This will be implemented in TASK-008 (Model Pricing System)
-        let _ = (usage, model_name); // Avoid unused warnings
-        Ok(0.0)
+    pub fn calculate_cost(&self, usage: &Usage, model_name: &str, pricing_manager: &crate::models::PricingManager) -> Result<f64> {
+        let input_tokens = usage.input_tokens.unwrap_or(0);
+        let output_tokens = usage.output_tokens.unwrap_or(0);
+        let cache_creation_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
+        let cache_read_tokens = usage.cache_read_input_tokens.unwrap_or(0);
+
+        let cost = pricing_manager.calculate_cost_for_model(
+            model_name,
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+        );
+
+        Ok(cost)
+    }
+
+    pub fn calculate_usage_with_projects(&self, enhanced_data: Vec<(UsageData, String)>, pricing_manager: &crate::models::PricingManager) -> Result<Vec<ProjectUsage>> {
+        let mut projects: HashMap<String, ProjectUsage> = HashMap::new();
+
+        for (message, project_name) in enhanced_data {
+            // Skip messages without usage data
+            let usage = match &message.usage {
+                Some(usage) => usage,
+                None => continue,
+            };
+
+            // Extract model name
+            let model_name = self.extract_model_from_message(&message);
+
+            // Get or create project usage entry
+            let project_usage = projects
+                .entry(project_name.clone())
+                .or_insert_with(|| ProjectUsage {
+                    project_name: project_name.clone(),
+                    ..Default::default()
+                });
+
+            // Get or create model usage entry
+            let model_usage = project_usage.model_usage
+                .entry(model_name.clone())
+                .or_insert_with(|| ModelUsage {
+                    model_name: model_name.clone(),
+                    ..Default::default()
+                });
+
+            // Aggregate token counts
+            let input_tokens = usage.input_tokens.unwrap_or(0);
+            let output_tokens = usage.output_tokens.unwrap_or(0);
+            let cache_creation_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
+            let cache_read_tokens = usage.cache_read_input_tokens.unwrap_or(0);
+
+            // Update project totals
+            project_usage.total_input_tokens += input_tokens;
+            project_usage.total_output_tokens += output_tokens;
+            project_usage.total_cache_creation_tokens += cache_creation_tokens;
+            project_usage.total_cache_read_tokens += cache_read_tokens;
+            project_usage.message_count += 1;
+
+            // Update model totals
+            model_usage.input_tokens += input_tokens;
+            model_usage.output_tokens += output_tokens;
+            model_usage.cache_creation_tokens += cache_creation_tokens;
+            model_usage.cache_read_tokens += cache_read_tokens;
+            model_usage.message_count += 1;
+
+            // Calculate cost based on mode
+            let cost = match self.calculation_mode {
+                CostCalculationMode::Display => {
+                    // Only use embedded cost, 0 if missing
+                    message.cost_usd.unwrap_or(0.0)
+                }
+                CostCalculationMode::Auto => {
+                    // Use embedded cost if available, otherwise calculate
+                    if let Some(embedded_cost) = message.cost_usd {
+                        embedded_cost
+                    } else {
+                        self.calculate_cost(usage, &model_name, pricing_manager)?
+                    }
+                }
+                CostCalculationMode::Calculate => {
+                    // Always calculate from tokens
+                    self.calculate_cost(usage, &model_name, pricing_manager)?
+                }
+            };
+
+            project_usage.total_cost_usd += cost;
+            model_usage.cost_usd += cost;
+        }
+
+        Ok(projects.into_values().collect())
+    }
+
+    pub fn calculate_usage(&self, usage_data: Vec<UsageData>, pricing_manager: &crate::models::PricingManager) -> Result<Vec<ProjectUsage>> {
+        let mut projects: HashMap<String, ProjectUsage> = HashMap::new();
+
+        for message in usage_data {
+            // Skip messages without usage data
+            let usage = match &message.usage {
+                Some(usage) => usage,
+                None => continue,
+            };
+
+            // Project name will be passed separately since UsageData doesn't contain it
+            let project_name = "Unknown".to_string(); // This will be overridden by the caller
+
+            // Extract model name
+            let model_name = self.extract_model_from_message(&message);
+
+            // Get or create project usage entry
+            let project_usage = projects
+                .entry(project_name.clone())
+                .or_insert_with(|| ProjectUsage {
+                    project_name: project_name.clone(),
+                    ..Default::default()
+                });
+
+            // Get or create model usage entry
+            let model_usage = project_usage.model_usage
+                .entry(model_name.clone())
+                .or_insert_with(|| ModelUsage {
+                    model_name: model_name.clone(),
+                    ..Default::default()
+                });
+
+            // Aggregate token counts
+            let input_tokens = usage.input_tokens.unwrap_or(0);
+            let output_tokens = usage.output_tokens.unwrap_or(0);
+            let cache_creation_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
+            let cache_read_tokens = usage.cache_read_input_tokens.unwrap_or(0);
+
+            // Update project totals
+            project_usage.total_input_tokens += input_tokens;
+            project_usage.total_output_tokens += output_tokens;
+            project_usage.total_cache_creation_tokens += cache_creation_tokens;
+            project_usage.total_cache_read_tokens += cache_read_tokens;
+            project_usage.message_count += 1;
+
+            // Update model totals
+            model_usage.input_tokens += input_tokens;
+            model_usage.output_tokens += output_tokens;
+            model_usage.cache_creation_tokens += cache_creation_tokens;
+            model_usage.cache_read_tokens += cache_read_tokens;
+            model_usage.message_count += 1;
+
+            // Calculate cost based on mode
+            let cost = match self.calculation_mode {
+                CostCalculationMode::Display => {
+                    // Only use embedded cost, 0 if missing
+                    message.cost_usd.unwrap_or(0.0)
+                }
+                CostCalculationMode::Auto => {
+                    // Use embedded cost if available, otherwise calculate
+                    if let Some(embedded_cost) = message.cost_usd {
+                        embedded_cost
+                    } else {
+                        self.calculate_cost(usage, &model_name, pricing_manager)?
+                    }
+                }
+                CostCalculationMode::Calculate => {
+                    // Always calculate from tokens
+                    self.calculate_cost(usage, &model_name, pricing_manager)?
+                }
+            };
+
+            project_usage.total_cost_usd += cost;
+            model_usage.cost_usd += cost;
+        }
+
+        Ok(projects.into_values().collect())
     }
 
     pub fn aggregate_usage(&self, filter: &UsageFilter) -> Result<Vec<ProjectUsage>> {
