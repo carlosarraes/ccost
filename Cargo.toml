@@ -1,0 +1,24 @@
+[package]
+name = "ccost"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Core CLI framework
+clap = { version = "4.0", features = ["derive"] }
+
+# Dependencies for future tasks (will be used in later implementations)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+dirs = "5.0"
+rusqlite = { version = "0.31", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["json"] }
+tabled = "0.15"
+toml = "0.8"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3.0"

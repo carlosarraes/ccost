@@ -1,0 +1,6 @@
+/target
+ai_docs/
+.claude/
+
+TASKS*
+CHANGELOG*
