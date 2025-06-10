@@ -7,7 +7,6 @@ use anyhow::{Context, Result};
 pub struct Config {
     pub general: GeneralConfig,
     pub currency: CurrencyConfig,
-    pub pricing: PricingConfig,
     pub output: OutputConfig,
     pub timezone: TimezoneConfig,
     pub cache: CacheConfig,
@@ -27,12 +26,6 @@ pub struct CurrencyConfig {
     pub cache_ttl_hours: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PricingConfig {
-    pub auto_update: bool,
-    pub github_repo: String,
-    pub fallback_to_hardcoded: bool,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputConfig {
@@ -72,11 +65,6 @@ impl Default for Config {
                 api_source: "ecb".to_string(),
                 cache_ttl_hours: 24,
             },
-            pricing: PricingConfig {
-                auto_update: false,
-                github_repo: "anthropics/claude-pricing".to_string(),
-                fallback_to_hardcoded: true,
-            },
             output: OutputConfig {
                 default_format: "table".to_string(),
                 include_project_path: false,
@@ -84,7 +72,7 @@ impl Default for Config {
                 colored: false, // No colors by default
             },
             timezone: TimezoneConfig {
-                timezone: "UTC".to_string(),
+                timezone: "America/New_York".to_string(),
                 daily_cutoff_hour: 0,
             },
             cache: CacheConfig {

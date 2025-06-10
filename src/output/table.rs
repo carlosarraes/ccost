@@ -64,6 +64,27 @@ pub struct ProjectSummaryRow {
     pub total_cost: String,
 }
 
+/// Row for daily usage table
+#[derive(Tabled, Serialize, Debug)]
+pub struct DailyUsageRow {
+    #[tabled(rename = "Date")]
+    pub date: String,
+    #[tabled(rename = "Input Tokens")]
+    pub input_tokens: String,
+    #[tabled(rename = "Output Tokens")]
+    pub output_tokens: String,
+    #[tabled(rename = "Cache Creation")]
+    pub cache_creation: String,
+    #[tabled(rename = "Cache Read")]
+    pub cache_read: String,
+    #[tabled(rename = "Messages")]
+    pub messages: String,
+    #[tabled(rename = "Projects")]
+    pub projects: String,
+    #[tabled(rename = "Total Cost")]
+    pub total_cost: String,
+}
+
 impl ProjectUsageRow {
     pub fn from_project_usage(usage: &ProjectUsage) -> Self {
         Self {
@@ -136,6 +157,21 @@ impl ProjectSummaryRow {
             messages: format_number(summary.message_count),
             models: summary.model_count.to_string(),
             total_cost: crate::models::currency::format_currency(summary.total_cost_usd, currency, decimal_places),
+        }
+    }
+}
+
+impl DailyUsageRow {
+    pub fn from_daily_usage_with_currency(usage: &crate::DailyUsage, currency: &str, decimal_places: u8) -> Self {
+        Self {
+            date: usage.date.clone(),
+            input_tokens: format_number(usage.total_input_tokens),
+            output_tokens: format_number(usage.total_output_tokens),
+            cache_creation: format_number(usage.total_cache_creation_tokens),
+            cache_read: format_number(usage.total_cache_read_tokens),
+            messages: format_number(usage.message_count),
+            projects: usage.projects_count.to_string(),
+            total_cost: crate::models::currency::format_currency(usage.total_cost_usd, currency, decimal_places),
         }
     }
 }
@@ -470,10 +506,11 @@ fn apply_table_style(mut table: Table) -> String {
 
 /// Table type enum for proper column coloring
 #[derive(Debug, Clone)]
-enum TableType {
+pub enum TableType {
     ProjectUsage, // Project, Input Tokens, Output Tokens, Cache Creation, Cache Read, Messages, Total Cost
     ModelUsage,   // Model, Input Tokens, Output Tokens, Cache Creation, Cache Read, Messages, Cost
     ProjectSummary, // Project, Total Tokens, Messages, Models, Total Cost
+    DailyUsage,   // Date, Input Tokens, Output Tokens, Cache Creation, Cache Read, Messages, Projects, Total Cost
 }
 
 /// Strip ANSI escape codes from a string to get its visual length
@@ -484,7 +521,7 @@ fn strip_ansi_codes(s: &str) -> String {
 }
 
 /// Apply modern table styling with optional column colors
-fn apply_table_style_with_color(mut table: Table, colored: bool, table_type: TableType) -> String {
+pub fn apply_table_style_with_color(mut table: Table, colored: bool, table_type: TableType) -> String {
     // Start with no borders
     let style = Style::blank();
     
@@ -525,6 +562,16 @@ fn apply_table_style_with_color(mut table: Table, colored: bool, table_type: Tab
                 table.modify(Columns::single(1), Color::FG_BLUE);   // Total Tokens
                 table.modify(Columns::single(2), Color::FG_YELLOW); // Messages
                 table.modify(Columns::single(3), Color::FG_CYAN);   // Models
+                table.modify(Columns::last(), Color::FG_RED);       // Total Cost
+            }
+            TableType::DailyUsage => {
+                // Date, Input Tokens, Output Tokens, Cache Creation, Cache Read, Messages, Projects, Total Cost
+                table.modify(Columns::single(1), Color::FG_BLUE);   // Input Tokens
+                table.modify(Columns::single(2), Color::FG_BLUE);   // Output Tokens  
+                table.modify(Columns::single(3), Color::FG_GREEN);  // Cache Creation
+                table.modify(Columns::single(4), Color::FG_GREEN);  // Cache Read
+                table.modify(Columns::single(5), Color::FG_YELLOW); // Messages
+                table.modify(Columns::single(6), Color::FG_CYAN);   // Projects
                 table.modify(Columns::last(), Color::FG_RED);       // Total Cost
             }
         }

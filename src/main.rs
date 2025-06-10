@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use serde::Serialize;
 use config::Config;
-use models::{PricingManager, ModelPricing};
+use models::PricingManager;
 use models::currency::CurrencyConverter;
 use storage::Database;
 use parser::jsonl::JsonlParser;
@@ -145,33 +145,6 @@ enum ConfigAction {
     },
 }
 
-#[derive(Subcommand)]
-enum PricingAction {
-    /// List current pricing for all models
-    List,
-    /// Update pricing from all available sources
-    Update {
-        #[command(subcommand)]
-        source: Option<PricingSource>,
-    },
-    /// Set custom pricing for a model
-    Set {
-        /// Model name (e.g., claude-sonnet-4)
-        model: String,
-        /// Input token price per million tokens
-        input_price: String,
-        /// Output token price per million tokens
-        output_price: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum PricingSource {
-    /// Update from GitHub repository
-    Github,
-    /// Update via web scraping
-    Scrape,
-}
 
 #[derive(Subcommand)]
 enum ExportFormat {
@@ -235,11 +208,6 @@ enum Commands {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
-    },
-    /// Model pricing management
-    Pricing {
-        #[command(subcommand)]
-        action: PricingAction,
     },
     /// Export usage data
     Export {
@@ -364,152 +332,6 @@ fn handle_config_action(action: ConfigAction, json_output: bool) {
     }
 }
 
-fn handle_pricing_action(action: PricingAction, json_output: bool) {
-    // Initialize database and pricing manager
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
-
-    let mut pricing_manager = PricingManager::with_database(database);
-
-    match action {
-        PricingAction::List => {
-            match pricing_manager.list_models() {
-                Ok(models) => {
-                    if json_output {
-                        let mut pricing_list = Vec::new();
-                        for model_name in &models {
-                            if let Some(pricing) = pricing_manager.get_pricing(model_name) {
-                                pricing_list.push(serde_json::json!({
-                                    "model": model_name,
-                                    "input_cost_per_mtok": pricing.input_cost_per_mtok,
-                                    "output_cost_per_mtok": pricing.output_cost_per_mtok,
-                                    "cache_cost_per_mtok": pricing.cache_cost_per_mtok
-                                }));
-                            }
-                        }
-                        match serde_json::to_string_pretty(&pricing_list) {
-                            Ok(json) => println!("{}", json),
-                            Err(e) => {
-                                println!(r#"{{"status": "error", "message": "Failed to serialize pricing data: {}"}}"#, e);
-                                std::process::exit(1);
-                            }
-                        }
-                    } else {
-                        println!("Model Pricing (per Million Tokens):");
-                        println!("{:<30} {:<12} {:<12} {:<12}", "Model", "Input ($)", "Output ($)", "Cache ($)");
-                        println!("{}", "-".repeat(78));
-                        
-                        for model_name in models {
-                            if let Some(pricing) = pricing_manager.get_pricing(&model_name) {
-                                println!(
-                                    "{:<30} {:<12.2} {:<12.2} {:<12.2}",
-                                    model_name,
-                                    pricing.input_cost_per_mtok,
-                                    pricing.output_cost_per_mtok,
-                                    pricing.cache_cost_per_mtok
-                                );
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to list models: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to list models: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        }
-        PricingAction::Update { source } => {
-            match source {
-                Some(PricingSource::Github) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "GitHub pricing updates not yet implemented (TASK-014)"}}"#);
-                    } else {
-                        eprintln!("Error: GitHub pricing updates not yet implemented (TASK-014)");
-                    }
-                }
-                Some(PricingSource::Scrape) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Web scraping for pricing not yet implemented (TASK-018)"}}"#);
-                    } else {
-                        eprintln!("Error: Web scraping for pricing not yet implemented (TASK-018)");
-                    }
-                }
-                None => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Automatic pricing updates not yet implemented"}}"#);
-                    } else {
-                        eprintln!("Error: Automatic pricing updates not yet implemented");
-                    }
-                }
-            }
-            std::process::exit(1);
-        }
-        PricingAction::Set { model, input_price, output_price } => {
-            // Parse pricing values
-            let input_cost = match input_price.parse::<f64>() {
-                Ok(price) => price,
-                Err(_) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Invalid input price format. Expected a number."}}"#);
-                    } else {
-                        eprintln!("Error: Invalid input price format. Expected a number.");
-                    }
-                    std::process::exit(1);
-                }
-            };
-
-            let output_cost = match output_price.parse::<f64>() {
-                Ok(price) => price,
-                Err(_) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Invalid output price format. Expected a number."}}"#);
-                    } else {
-                        eprintln!("Error: Invalid output price format. Expected a number.");
-                    }
-                    std::process::exit(1);
-                }
-            };
-
-            // Use default cache cost (10% of input cost)
-            let cache_cost = input_cost * 0.1;
-            let pricing = ModelPricing::new(input_cost, output_cost, cache_cost);
-
-            match pricing_manager.set_pricing(model.clone(), pricing) {
-                Ok(()) => {
-                    if json_output {
-                        println!(r#"{{"status": "success", "message": "Pricing set for model: {}"}}"#, model);
-                    } else {
-                        println!("Successfully set pricing for model: {}", model);
-                        println!("  Input:  ${:.2} per million tokens", input_cost);
-                        println!("  Output: ${:.2} per million tokens", output_cost);
-                        println!("  Cache:  ${:.2} per million tokens (auto-calculated)", cache_cost);
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to set pricing: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to set pricing: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
-}
 
 fn get_database() -> anyhow::Result<Database> {
     let db_path = dirs::config_dir()
@@ -1425,52 +1247,12 @@ impl OutputFormat for DailyUsageList {
             return "No daily usage data found.".to_string();
         }
 
-        // Simple string-based table formatting
-        let header_color = if colored { "\x1b[37m\x1b[1m" } else { "" };
-        let reset_color = if colored { "\x1b[39m\x1b[22m" } else { "" };
+        // Convert to DailyUsageRow using the proper tabled infrastructure
+        let mut rows: Vec<output::DailyUsageRow> = self.0.iter()
+            .map(|usage| output::DailyUsageRow::from_daily_usage_with_currency(usage, currency, decimal_places))
+            .collect();
         
-        let mut result = String::new();
-        
-        // Header
-        result.push_str(&format!(" {}{:<12}{} {}{:>13}{} {}{:>14}{} {}{:>15}{} {}{:>11}{} {}{:>9}{} {}{:>9}{} {}{:>12}{}\n",
-            header_color, "Date", reset_color,
-            header_color, "Input Tokens", reset_color,
-            header_color, "Output Tokens", reset_color,
-            header_color, "Cache Creation", reset_color,
-            header_color, "Cache Read", reset_color,
-            header_color, "Messages", reset_color,
-            header_color, "Projects", reset_color,
-            header_color, "Total Cost", reset_color));
-        
-        // Separator
-        result.push_str(&"─".repeat(110));
-        result.push('\n');
-        
-        // Data rows
-        for daily in &self.0 {
-            let cost_str = output::table::format_currency(daily.total_cost_usd, currency, decimal_places);
-            let colored_cost = if colored {
-                format!("\x1b[31m{}\x1b[39m", cost_str)
-            } else {
-                cost_str
-            };
-            
-            result.push_str(&format!(" {:<12} {:>13} {:>14} {:>15} {:>11} {:>9} {:>9} {:>12}\n",
-                daily.date,
-                output::table::format_number(daily.total_input_tokens),
-                output::table::format_number(daily.total_output_tokens),
-                output::table::format_number(daily.total_cache_creation_tokens),
-                output::table::format_number(daily.total_cache_read_tokens),
-                output::table::format_number(daily.message_count),
-                daily.projects_count,
-                colored_cost));
-        }
-        
-        // Separator before totals
-        result.push_str(&"─".repeat(110));
-        result.push('\n');
-        
-        // Totals row
+        // Calculate totals for summary row
         let total_input: u64 = self.0.iter().map(|d| d.total_input_tokens).sum();
         let total_output: u64 = self.0.iter().map(|d| d.total_output_tokens).sum();
         let total_cache_creation: u64 = self.0.iter().map(|d| d.total_cache_creation_tokens).sum();
@@ -1478,25 +1260,20 @@ impl OutputFormat for DailyUsageList {
         let total_messages: u64 = self.0.iter().map(|d| d.message_count).sum();
         let total_cost: f64 = self.0.iter().map(|d| d.total_cost_usd).sum();
         let total_projects: usize = self.0.iter().map(|d| d.projects_count).sum();
-
-        let total_cost_str = output::table::format_currency(total_cost, currency, decimal_places);
-        let colored_total_cost = if colored {
-            format!("\x1b[31m{}\x1b[39m", total_cost_str)
-        } else {
-            total_cost_str
-        };
-
-        result.push_str(&format!(" {:<12} {:>13} {:>14} {:>15} {:>11} {:>9} {:>9} {:>12}\n",
-            "TOTAL",
-            output::table::format_number(total_input),
-            output::table::format_number(total_output),
-            output::table::format_number(total_cache_creation),
-            output::table::format_number(total_cache_read),
-            output::table::format_number(total_messages),
-            total_projects,
-            colored_total_cost));
-
-        result
+        
+        // Add totals row
+        rows.push(output::DailyUsageRow {
+            date: "TOTAL".to_string(),
+            input_tokens: output::table::format_number(total_input),
+            output_tokens: output::table::format_number(total_output),
+            cache_creation: output::table::format_number(total_cache_creation),
+            cache_read: output::table::format_number(total_cache_read),
+            messages: output::table::format_number(total_messages),
+            projects: total_projects.to_string(),
+            total_cost: crate::models::currency::format_currency(total_cost, currency, decimal_places),
+        });
+        
+        output::table::apply_table_style_with_color(tabled::Table::new(rows), colored, output::table::TableType::DailyUsage)
     }
 }
 
@@ -1922,9 +1699,6 @@ fn main() {
         Commands::Config { action } => {
             handle_config_action(action, cli.json);
         }
-        Commands::Pricing { action } => {
-            handle_pricing_action(action, cli.json);
-        }
         Commands::Export { format } => {
             handle_export_command(format, cli.json);
         }
@@ -2126,81 +1900,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_pricing_command_options() {
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "pricing",
-            "list"
-        ]).unwrap();
-        
-        match cli.command {
-            Commands::Pricing { action } => {
-                assert!(matches!(action, PricingAction::List));
-            }
-            _ => panic!("Expected Pricing command"),
-        }
-
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "pricing",
-            "update"
-        ]).unwrap();
-        
-        match cli.command {
-            Commands::Pricing { action } => {
-                match action {
-                    PricingAction::Update { source } => {
-                        assert!(source.is_none());
-                    }
-                    _ => panic!("Expected Update action"),
-                }
-            }
-            _ => panic!("Expected Pricing command"),
-        }
-
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "pricing",
-            "update",
-            "github"
-        ]).unwrap();
-        
-        match cli.command {
-            Commands::Pricing { action } => {
-                match action {
-                    PricingAction::Update { source } => {
-                        assert!(matches!(source, Some(PricingSource::Github)));
-                    }
-                    _ => panic!("Expected Update action"),
-                }
-            }
-            _ => panic!("Expected Pricing command"),
-        }
-
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "pricing",
-            "set",
-            "claude-sonnet-4",
-            "3.0",
-            "15.0"
-        ]).unwrap();
-        
-        match cli.command {
-            Commands::Pricing { action } => {
-                match action {
-                    PricingAction::Set { model, input_price, output_price } => {
-                        assert_eq!(model, "claude-sonnet-4");
-                        assert_eq!(input_price, "3.0");
-                        assert_eq!(output_price, "15.0");
-                    }
-                    _ => panic!("Expected Set action"),
-                }
-            }
-            _ => panic!("Expected Pricing command"),
-        }
-    }
 
     #[test]
     fn test_invalid_command_fails() {
