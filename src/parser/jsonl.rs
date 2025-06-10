@@ -1,14 +1,59 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 pub struct Message {
+    #[serde(deserialize_with = "deserialize_content")]
     pub content: Option<String>,
     pub model: Option<String>,
     pub role: Option<String>,
+    // Claude Code format includes usage in message
+    pub usage: Option<ClaudeCodeUsage>,
+}
+
+/// Custom deserializer for content field that handles both string and array formats
+fn deserialize_content<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<Value> = Option::deserialize(deserializer)?;
+    
+    match value {
+        None => Ok(None),
+        Some(Value::String(s)) => Ok(Some(s)),
+        Some(Value::Array(arr)) => {
+            // Extract text content from array of content blocks
+            let mut text_parts = Vec::new();
+            
+            for item in arr {
+                if let Value::Object(obj) = item {
+                    // Check if this is a text content block
+                    if let (Some(Value::String(content_type)), Some(Value::String(text))) = 
+                        (obj.get("type"), obj.get("text")) {
+                        if content_type == "text" {
+                            text_parts.push(text.clone());
+                        }
+                    }
+                    // For tool_use blocks, we could extract the tool name/input if needed
+                    // but for now we'll just skip them as they don't contribute to text content
+                }
+            }
+            
+            if text_parts.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(text_parts.join(" ")))
+            }
+        }
+        Some(_) => {
+            // For any other type, convert to string representation
+            Ok(Some(value.unwrap().to_string()))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -24,8 +69,16 @@ pub struct Usage {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ClaudeCodeUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct UsageData {
-    pub timestamp: String,
+    pub timestamp: Option<String>,
     pub uuid: Option<String>,
     #[serde(rename = "requestId")]
     pub request_id: Option<String>,
@@ -71,6 +124,11 @@ impl JsonlParser {
 
     /// Parse a single JSONL file
     pub fn parse_file(&self, file_path: &Path) -> Result<ParsedConversation> {
+        self.parse_file_with_verbose(file_path, false)
+    }
+
+    /// Parse a single JSONL file with optional verbose output
+    pub fn parse_file_with_verbose(&self, file_path: &Path, verbose: bool) -> Result<ParsedConversation> {
         let project_path = self.extract_project_path(file_path)?;
         
         let file = File::open(file_path)
@@ -101,15 +159,19 @@ impl JsonlParser {
                             skipped_lines += 1;
                         }
                         Err(e) => {
-                            eprintln!("Warning: Skipping malformed JSON at {}:{}: {}", 
-                                     file_path.display(), line_num + 1, e);
+                            if verbose {
+                                eprintln!("Warning: Skipping malformed JSON at {}:{}: {}", 
+                                         file_path.display(), line_num + 1, e);
+                            }
                             skipped_lines += 1;
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to read line {} in {}: {}", 
-                             line_num + 1, file_path.display(), e);
+                    if verbose {
+                        eprintln!("Warning: Failed to read line {} in {}: {}", 
+                                 line_num + 1, file_path.display(), e);
+                    }
                     skipped_lines += 1;
                 }
             }
@@ -130,19 +192,42 @@ impl JsonlParser {
         let usage_data: UsageData = serde_json::from_str(line)
             .map_err(|e| anyhow!("JSON parse error: {}", e))?;
 
-        // Validate required fields for meaningful data
-        if usage_data.timestamp.is_empty() {
-            return Ok(None); // Skip entries without timestamps
+        // Validate timestamp field - skip only if present but empty
+        if let Some(ref timestamp) = usage_data.timestamp {
+            if timestamp.is_empty() {
+                return Ok(None); // Skip entries with empty timestamps
+            }
         }
+        // If timestamp is None, we'll continue processing - it's now optional
 
         // For deduplication purposes, we prefer both uuid and request_id
-        // but we'll warn if they're missing rather than skip entirely
-        if usage_data.uuid.is_none() && usage_data.request_id.is_none() {
-            eprintln!("Warning: Message at {}:{} has no uuid or requestId - may not deduplicate properly", 
-                     file_path.display(), line_num);
-        }
+        // Note: Missing UUIDs/requestIds will be handled by deduplication engine
+        // Warnings will be shown only in verbose mode
 
-        Ok(Some(usage_data))
+        // Normalize usage data to handle Claude Code format
+        let normalized_usage_data = self.normalize_usage_data(usage_data);
+
+        Ok(Some(normalized_usage_data))
+    }
+
+    /// Normalize usage data to handle both old and Claude Code formats
+    fn normalize_usage_data(&self, mut usage_data: UsageData) -> UsageData {
+        // If usage field is empty but message has usage (Claude Code format)
+        if usage_data.usage.is_none() {
+            if let Some(ref message) = usage_data.message {
+                if let Some(ref claude_usage) = message.usage {
+                    // Convert Claude Code usage to our standard format
+                    usage_data.usage = Some(Usage {
+                        input_tokens: claude_usage.input_tokens,
+                        output_tokens: claude_usage.output_tokens,
+                        cache_creation_input_tokens: claude_usage.cache_creation_input_tokens,
+                        cache_read_input_tokens: claude_usage.cache_read_input_tokens,
+                    });
+                }
+            }
+        }
+        
+        usage_data
     }
 
     /// Find all JSONL files in the projects directory
@@ -177,16 +262,23 @@ impl JsonlParser {
 
     /// Parse all JSONL files in the base directory
     pub fn parse_all_files(&self) -> Result<Vec<ParsedConversation>> {
+        self.parse_all_files_with_verbose(false)
+    }
+
+    /// Parse all JSONL files in the base directory with optional verbose output
+    pub fn parse_all_files_with_verbose(&self, verbose: bool) -> Result<Vec<ParsedConversation>> {
         let files = self.find_jsonl_files()?;
         let mut conversations = Vec::new();
 
         for file_path in files {
-            match self.parse_file(&file_path) {
+            match self.parse_file_with_verbose(&file_path, verbose) {
                 Ok(conversation) => {
                     conversations.push(conversation);
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                    if verbose {
+                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                    }
                 }
             }
         }
@@ -232,7 +324,7 @@ mod tests {
             // Entry with empty timestamp (should be skipped)
             r#"{"timestamp":"","uuid":"test-uuid-empty"}"#,
             
-            // Entry with no timestamp (should be skipped)
+            // Entry with no timestamp (should now be processed)
             r#"{"uuid":"test-uuid-no-timestamp","message":{"content":"Test"}}"#,
         ]
     }
@@ -261,7 +353,7 @@ mod tests {
         assert!(result.is_some());
         
         let usage_data = result.unwrap();
-        assert_eq!(usage_data.timestamp, "2025-06-09T10:30:00Z");
+        assert_eq!(usage_data.timestamp, Some("2025-06-09T10:30:00Z".to_string()));
         assert_eq!(usage_data.uuid, Some("test-uuid".to_string()));
         assert_eq!(usage_data.request_id, Some("req-1".to_string()));
         assert_eq!(usage_data.cost_usd, Some(0.001));
@@ -287,7 +379,7 @@ mod tests {
         assert!(result.is_some());
         
         let usage_data = result.unwrap();
-        assert_eq!(usage_data.timestamp, "2025-06-09T10:30:00Z");
+        assert_eq!(usage_data.timestamp, Some("2025-06-09T10:30:00Z".to_string()));
         assert_eq!(usage_data.uuid, Some("test-uuid".to_string()));
         assert_eq!(usage_data.request_id, None);
         assert_eq!(usage_data.message, None);
@@ -313,9 +405,13 @@ mod tests {
         
         let line = r#"{"uuid":"test-uuid"}"#;
         
-        // This should fail because timestamp field is missing entirely
-        let result = parser.parse_line(line, 1, test_path);
-        assert!(result.is_err());
+        // This should now succeed because timestamp field is optional
+        let result = parser.parse_line(line, 1, test_path).unwrap();
+        assert!(result.is_some());
+        
+        let usage_data = result.unwrap();
+        assert_eq!(usage_data.timestamp, None);
+        assert_eq!(usage_data.uuid, Some("test-uuid".to_string()));
     }
 
     #[test]
@@ -375,10 +471,10 @@ mod tests {
         
         assert_eq!(result.project_path, PathBuf::from("project1"));
         assert_eq!(result.file_path, file_path);
-        assert_eq!(result.parsed_lines, 4); // 4 valid entries  
-        assert_eq!(result.skipped_lines, 3); // 1 empty + 1 malformed + 1 empty timestamp (missing timestamp fails JSON parse)
+        assert_eq!(result.parsed_lines, 5); // 5 valid entries including one without timestamp
+        assert_eq!(result.skipped_lines, 2); // 1 empty + 1 malformed + 1 empty timestamp
         assert_eq!(result.total_lines, 8);
-        assert_eq!(result.messages.len(), 4);
+        assert_eq!(result.messages.len(), 5);
         
         // Verify first message
         let first_msg = &result.messages[0];
@@ -575,5 +671,61 @@ mod tests {
         let usage = last_msg.usage.as_ref().unwrap();
         assert_eq!(usage.cache_read_input_tokens, Some(25));
         assert_eq!(last_msg.cost_usd, Some(0.00058));
+    }
+
+    #[test]
+    fn test_new_format_with_array_content() {
+        let parser = JsonlParser::new(PathBuf::from("/test"));
+        let test_path = Path::new("/test/file.jsonl");
+        
+        // Test the new array-based content format
+        let line = r#"{"timestamp":"2025-06-09T10:30:00Z","uuid":"test-uuid","message":{"content":[{"type":"text","text":"Hello world"},{"type":"tool_use","id":"tool1","name":"bash","input":{"command":"ls"}}],"model":"claude-sonnet-4","role":"assistant"},"usage":{"inputTokens":10,"outputTokens":20}}"#;
+        
+        let result = parser.parse_line(line, 1, test_path).unwrap();
+        assert!(result.is_some());
+        
+        let usage_data = result.unwrap();
+        let message = usage_data.message.unwrap();
+        
+        // Should extract only the text content, ignoring tool_use blocks
+        assert_eq!(message.content, Some("Hello world".to_string()));
+        assert_eq!(message.model, Some("claude-sonnet-4".to_string()));
+        assert_eq!(message.role, Some("assistant".to_string()));
+    }
+    
+    #[test]
+    fn test_mixed_content_array() {
+        let parser = JsonlParser::new(PathBuf::from("/test"));
+        let test_path = Path::new("/test/file.jsonl");
+        
+        // Test array with multiple text blocks
+        let line = r#"{"timestamp":"2025-06-09T10:30:00Z","uuid":"test-uuid","message":{"content":[{"type":"text","text":"First part"},{"type":"text","text":"Second part"}],"model":"claude-sonnet-4","role":"assistant"}}"#;
+        
+        let result = parser.parse_line(line, 1, test_path).unwrap();
+        assert!(result.is_some());
+        
+        let usage_data = result.unwrap();
+        let message = usage_data.message.unwrap();
+        
+        // Should join multiple text parts
+        assert_eq!(message.content, Some("First part Second part".to_string()));
+    }
+    
+    #[test]
+    fn test_backwards_compatibility_string_content() {
+        let parser = JsonlParser::new(PathBuf::from("/test"));
+        let test_path = Path::new("/test/file.jsonl");
+        
+        // Test that old string format still works
+        let line = r#"{"timestamp":"2025-06-09T10:30:00Z","uuid":"test-uuid","message":{"content":"Simple string content","model":"claude-sonnet-4","role":"user"}}"#;
+        
+        let result = parser.parse_line(line, 1, test_path).unwrap();
+        assert!(result.is_some());
+        
+        let usage_data = result.unwrap();
+        let message = usage_data.message.unwrap();
+        
+        // Should preserve string content as-is
+        assert_eq!(message.content, Some("Simple string content".to_string()));
     }
 }

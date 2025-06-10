@@ -27,13 +27,14 @@ mod integration_tests {
         // Create realistic usage data simulating a Claude conversation
         let messages = vec![
             UsageData {
-                timestamp: "2025-06-09T10:00:00Z".to_string(),
+                timestamp: Some("2025-06-09T10:00:00Z".to_string()),
                 uuid: Some("conv-123".to_string()),
                 request_id: Some("req-1".to_string()),
                 message: Some(Message {
                     model: Some("claude-sonnet-4".to_string()),
                     role: Some("user".to_string()),
                     content: Some("Hello, can you help me?".to_string()),
+                    usage: None,
                 }),
                 usage: Some(Usage {
                     input_tokens: Some(50),
@@ -44,13 +45,14 @@ mod integration_tests {
                 cost_usd: Some(0.45),
             },
             UsageData {
-                timestamp: "2025-06-09T10:01:00Z".to_string(),
+                timestamp: Some("2025-06-09T10:01:00Z".to_string()),
                 uuid: Some("conv-123".to_string()),
                 request_id: Some("req-2".to_string()),
                 message: Some(Message {
                     model: Some("claude-opus-4".to_string()),
                     role: Some("assistant".to_string()),
                     content: Some("Of course! I'd be happy to help.".to_string()),
+                    usage: None,
                 }),
                 usage: Some(Usage {
                     input_tokens: Some(25),
@@ -61,13 +63,14 @@ mod integration_tests {
                 cost_usd: Some(1.20),
             },
             UsageData {
-                timestamp: "2025-06-09T10:02:00Z".to_string(),
+                timestamp: Some("2025-06-09T10:02:00Z".to_string()),
                 uuid: Some("conv-123".to_string()),
                 request_id: Some("req-3".to_string()),
                 message: Some(Message {
                     model: Some("claude-sonnet-4".to_string()),
                     role: Some("user".to_string()),
                     content: Some("Thanks! Can you explain recursion?".to_string()),
+                    usage: None,
                 }),
                 usage: Some(Usage {
                     input_tokens: Some(75),
@@ -127,7 +130,7 @@ mod integration_tests {
         let messages = vec![
             // Message with embedded cost
             UsageData {
-                timestamp: "2025-06-09T10:00:00Z".to_string(),
+                timestamp: Some("2025-06-09T10:00:00Z".to_string()),
                 uuid: Some("uuid1".to_string()),
                 request_id: Some("req1".to_string()),
                 message: Some(Message {
@@ -144,7 +147,7 @@ mod integration_tests {
             },
             // Message without embedded cost
             UsageData {
-                timestamp: "2025-06-09T10:01:00Z".to_string(),
+                timestamp: Some("2025-06-09T10:01:00Z".to_string()),
                 uuid: Some("uuid2".to_string()),
                 request_id: Some("req2".to_string()),
                 message: Some(Message {

@@ -145,11 +145,30 @@ impl OutputFormat for Vec<ProjectUsage> {
             return "No usage data found.".to_string();
         }
         
-        let rows: Vec<ProjectUsageRow> = self.iter()
+        let mut rows: Vec<ProjectUsageRow> = self.iter()
             .map(ProjectUsageRow::from_project_usage)
             .collect();
         
-        Table::new(rows).to_string()
+        // Calculate totals for summary row
+        let total_input: u64 = self.iter().map(|p| p.total_input_tokens).sum();
+        let total_output: u64 = self.iter().map(|p| p.total_output_tokens).sum();
+        let total_cache_creation: u64 = self.iter().map(|p| p.total_cache_creation_tokens).sum();
+        let total_cache_read: u64 = self.iter().map(|p| p.total_cache_read_tokens).sum();
+        let total_messages: u64 = self.iter().map(|p| p.message_count).sum();
+        let total_cost: f64 = self.iter().map(|p| p.total_cost_usd).sum();
+        
+        // Add totals row
+        rows.push(ProjectUsageRow {
+            project: "TOTAL".to_string(),
+            input_tokens: format_number(total_input),
+            output_tokens: format_number(total_output),
+            cache_creation: format_number(total_cache_creation),
+            cache_read: format_number(total_cache_read),
+            messages: format_number(total_messages),
+            total_cost: format_currency(total_cost),
+        });
+        
+        apply_table_style(Table::new(rows))
     }
     
     fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -161,11 +180,30 @@ impl OutputFormat for Vec<ProjectUsage> {
             return "No usage data found.".to_string();
         }
         
-        let rows: Vec<ProjectUsageRow> = self.iter()
+        let mut rows: Vec<ProjectUsageRow> = self.iter()
             .map(|usage| ProjectUsageRow::from_project_usage_with_currency(usage, currency, decimal_places))
             .collect();
         
-        Table::new(rows).to_string()
+        // Calculate totals for summary row
+        let total_input: u64 = self.iter().map(|p| p.total_input_tokens).sum();
+        let total_output: u64 = self.iter().map(|p| p.total_output_tokens).sum();
+        let total_cache_creation: u64 = self.iter().map(|p| p.total_cache_creation_tokens).sum();
+        let total_cache_read: u64 = self.iter().map(|p| p.total_cache_read_tokens).sum();
+        let total_messages: u64 = self.iter().map(|p| p.message_count).sum();
+        let total_cost: f64 = self.iter().map(|p| p.total_cost_usd).sum();
+        
+        // Add totals row
+        rows.push(ProjectUsageRow {
+            project: "TOTAL".to_string(),
+            input_tokens: format_number(total_input),
+            output_tokens: format_number(total_output),
+            cache_creation: format_number(total_cache_creation),
+            cache_read: format_number(total_cache_read),
+            messages: format_number(total_messages),
+            total_cost: crate::models::currency::format_currency(total_cost, currency, decimal_places),
+        });
+        
+        apply_table_style(Table::new(rows))
     }
 }
 
@@ -175,11 +213,30 @@ impl OutputFormat for Vec<ModelUsage> {
             return "No model usage data found.".to_string();
         }
         
-        let rows: Vec<ModelUsageRow> = self.iter()
+        let mut rows: Vec<ModelUsageRow> = self.iter()
             .map(ModelUsageRow::from_model_usage)
             .collect();
         
-        Table::new(rows).to_string()
+        // Calculate totals for summary row
+        let total_input: u64 = self.iter().map(|m| m.input_tokens).sum();
+        let total_output: u64 = self.iter().map(|m| m.output_tokens).sum();
+        let total_cache_creation: u64 = self.iter().map(|m| m.cache_creation_tokens).sum();
+        let total_cache_read: u64 = self.iter().map(|m| m.cache_read_tokens).sum();
+        let total_messages: u64 = self.iter().map(|m| m.message_count).sum();
+        let total_cost: f64 = self.iter().map(|m| m.cost_usd).sum();
+        
+        // Add totals row
+        rows.push(ModelUsageRow {
+            model: "TOTAL".to_string(),
+            input_tokens: format_number(total_input),
+            output_tokens: format_number(total_output),
+            cache_creation: format_number(total_cache_creation),
+            cache_read: format_number(total_cache_read),
+            messages: format_number(total_messages),
+            cost: format_currency(total_cost),
+        });
+        
+        apply_table_style(Table::new(rows))
     }
     
     fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -191,11 +248,30 @@ impl OutputFormat for Vec<ModelUsage> {
             return "No model usage data found.".to_string();
         }
         
-        let rows: Vec<ModelUsageRow> = self.iter()
+        let mut rows: Vec<ModelUsageRow> = self.iter()
             .map(|usage| ModelUsageRow::from_model_usage_with_currency(usage, currency, decimal_places))
             .collect();
         
-        Table::new(rows).to_string()
+        // Calculate totals for summary row
+        let total_input: u64 = self.iter().map(|m| m.input_tokens).sum();
+        let total_output: u64 = self.iter().map(|m| m.output_tokens).sum();
+        let total_cache_creation: u64 = self.iter().map(|m| m.cache_creation_tokens).sum();
+        let total_cache_read: u64 = self.iter().map(|m| m.cache_read_tokens).sum();
+        let total_messages: u64 = self.iter().map(|m| m.message_count).sum();
+        let total_cost: f64 = self.iter().map(|m| m.cost_usd).sum();
+        
+        // Add totals row
+        rows.push(ModelUsageRow {
+            model: "TOTAL".to_string(),
+            input_tokens: format_number(total_input),
+            output_tokens: format_number(total_output),
+            cache_creation: format_number(total_cache_creation),
+            cache_read: format_number(total_cache_read),
+            messages: format_number(total_messages),
+            cost: crate::models::currency::format_currency(total_cost, currency, decimal_places),
+        });
+        
+        apply_table_style(Table::new(rows))
     }
 }
 
@@ -205,11 +281,27 @@ impl OutputFormat for Vec<ProjectSummary> {
             return "No project data found.".to_string();
         }
         
-        let rows: Vec<ProjectSummaryRow> = self.iter()
+        let mut rows: Vec<ProjectSummaryRow> = self.iter()
             .map(ProjectSummaryRow::from_project_summary)
             .collect();
         
-        Table::new(rows).to_string()
+        // Calculate totals for summary row
+        let total_input: u64 = self.iter().map(|p| p.total_input_tokens).sum();
+        let total_output: u64 = self.iter().map(|p| p.total_output_tokens).sum();
+        let total_messages: u64 = self.iter().map(|p| p.message_count).sum();
+        let total_models: usize = self.iter().map(|p| p.model_count).sum();
+        let total_cost: f64 = self.iter().map(|p| p.total_cost_usd).sum();
+        
+        // Add totals row
+        rows.push(ProjectSummaryRow {
+            project: "TOTAL".to_string(),
+            total_tokens: format_number(total_input + total_output),
+            messages: format_number(total_messages),
+            models: total_models.to_string(),
+            total_cost: format_currency(total_cost),
+        });
+        
+        apply_table_style(Table::new(rows))
     }
     
     fn to_json(&self) -> Result<String, serde_json::Error> {
@@ -221,11 +313,27 @@ impl OutputFormat for Vec<ProjectSummary> {
             return "No project data found.".to_string();
         }
         
-        let rows: Vec<ProjectSummaryRow> = self.iter()
+        let mut rows: Vec<ProjectSummaryRow> = self.iter()
             .map(|summary| ProjectSummaryRow::from_project_summary_with_currency(summary, currency, decimal_places))
             .collect();
         
-        Table::new(rows).to_string()
+        // Calculate totals for summary row
+        let total_input: u64 = self.iter().map(|p| p.total_input_tokens).sum();
+        let total_output: u64 = self.iter().map(|p| p.total_output_tokens).sum();
+        let total_messages: u64 = self.iter().map(|p| p.message_count).sum();
+        let total_models: usize = self.iter().map(|p| p.model_count).sum();
+        let total_cost: f64 = self.iter().map(|p| p.total_cost_usd).sum();
+        
+        // Add totals row
+        rows.push(ProjectSummaryRow {
+            project: "TOTAL".to_string(),
+            total_tokens: format_number(total_input + total_output),
+            messages: format_number(total_messages),
+            models: total_models.to_string(),
+            total_cost: crate::models::currency::format_currency(total_cost, currency, decimal_places),
+        });
+        
+        apply_table_style(Table::new(rows))
     }
 }
 
@@ -256,6 +364,13 @@ fn format_currency(amount: f64) -> String {
     }
     
     format!("${:.2}", amount)
+}
+
+/// Apply modern table styling similar to the design reference
+fn apply_table_style(table: Table) -> String {
+    // For now, return basic table styling
+    // TODO: Add advanced styling with proper tabled settings imports
+    table.to_string()
 }
 
 #[cfg(test)]

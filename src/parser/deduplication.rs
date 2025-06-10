@@ -115,7 +115,7 @@ impl DeduplicationEngine {
                         hash,
                         message.uuid.as_deref().unwrap_or(""),
                         message.request_id.as_deref().unwrap_or(""),
-                        message.timestamp
+                        message.timestamp.as_deref().unwrap_or("")
                     ],
                 )?;
             }
@@ -150,9 +150,7 @@ impl DeduplicationEngine {
             }
         }
 
-        if stats.duplicates_found > 0 || stats.messages_without_ids > 0 {
-            eprintln!("Deduplication stats: {}", stats);
-        }
+        // Only show stats in verbose mode - moved to caller to handle verbose flag
 
         Ok(unique_messages)
     }
@@ -203,13 +201,14 @@ mod tests {
 
     fn create_test_message(uuid: Option<String>, request_id: Option<String>) -> UsageData {
         UsageData {
-            timestamp: "2025-06-09T10:00:00Z".to_string(),
+            timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid,
             request_id,
             message: Some(Message {
                 content: Some("Test message".to_string()),
                 model: Some("claude-sonnet-4".to_string()),
                 role: Some("user".to_string()),
+                usage: None,
             }),
             usage: Some(Usage {
                 input_tokens: Some(10),

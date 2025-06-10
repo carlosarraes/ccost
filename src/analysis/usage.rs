@@ -402,7 +402,7 @@ mod tests {
         cost_usd: Option<f64>,
     ) -> UsageData {
         UsageData {
-            timestamp: timestamp.to_string(),
+            timestamp: Some(timestamp.to_string()),
             uuid: uuid.map(|s| s.to_string()),
             request_id: request_id.map(|s| s.to_string()),
             message: model.map(|m| Message {
@@ -582,7 +582,7 @@ mod tests {
         let messages = vec![
             // Message with no usage data
             UsageData {
-                timestamp: "2025-06-09T10:00:00Z".to_string(),
+                timestamp: Some("2025-06-09T10:00:00Z".to_string()),
                 uuid: Some("uuid1".to_string()),
                 request_id: Some("req1".to_string()),
                 message: Some(Message {
@@ -658,7 +658,7 @@ mod tests {
         
         // Test with no message/model
         let message_no_model = UsageData {
-            timestamp: "2025-06-09T10:00:00Z".to_string(),
+            timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid: Some("uuid1".to_string()),
             request_id: Some("req1".to_string()),
             message: None,

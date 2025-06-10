@@ -1,6 +1,7 @@
 // ccost: Claude Cost Tracking Tool
 use clap::{Parser, Subcommand};
 use chrono::{DateTime, Utc, NaiveDate, TimeZone, Datelike};
+use std::path::PathBuf;
 use config::Config;
 use models::{PricingManager, ModelPricing};
 use models::currency::CurrencyConverter;
@@ -483,11 +484,29 @@ fn handle_usage_command(
         }
     };
 
-    // Find and parse JSONL files
-    let projects_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap())
-        .join(".claude")
-        .join("projects");
+    // Find and parse JSONL files - use config setting
+    let config_for_projects = match Config::load() {
+        Ok(config) => config,
+        Err(_) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+            } else {
+                eprintln!("Error: Failed to load config for projects path");
+            }
+            std::process::exit(1);
+        }
+    };
+    
+    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+        // Expand tilde to home directory
+        if let Some(home_dir) = dirs::home_dir() {
+            home_dir.join(&config_for_projects.general.claude_projects_path[2..])
+        } else {
+            PathBuf::from(&config_for_projects.general.claude_projects_path)
+        }
+    } else {
+        PathBuf::from(&config_for_projects.general.claude_projects_path)
+    };
 
     let pricing_manager = PricingManager::with_database(database);
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
@@ -561,7 +580,7 @@ fn handle_usage_command(
             }
         }
 
-        match parser.parse_file(&file_path) {
+        match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 total_messages += parsed_conversation.messages.len();
                 
@@ -880,11 +899,29 @@ fn handle_projects_command(
         }
     };
 
-    // Find and parse JSONL files
-    let projects_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap())
-        .join(".claude")
-        .join("projects");
+    // Find and parse JSONL files - use config setting
+    let config_for_projects = match Config::load() {
+        Ok(config) => config,
+        Err(_) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+            } else {
+                eprintln!("Error: Failed to load config for projects path");
+            }
+            std::process::exit(1);
+        }
+    };
+    
+    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+        // Expand tilde to home directory
+        if let Some(home_dir) = dirs::home_dir() {
+            home_dir.join(&config_for_projects.general.claude_projects_path[2..])
+        } else {
+            PathBuf::from(&config_for_projects.general.claude_projects_path)
+        }
+    } else {
+        PathBuf::from(&config_for_projects.general.claude_projects_path)
+    };
 
     let pricing_manager = PricingManager::with_database(database);
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
@@ -936,7 +973,7 @@ fn handle_projects_command(
             Err(_) => "Unknown".to_string(),
         };
 
-        match parser.parse_file(&file_path) {
+        match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 total_messages += parsed_conversation.messages.len();
                 
