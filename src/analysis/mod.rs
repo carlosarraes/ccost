@@ -2,10 +2,12 @@
 pub mod usage;
 pub mod projects;
 pub mod timeline;
+pub mod timezone;
 
 // Re-export key types for easier access
 pub use usage::{UsageTracker, ProjectUsage, ModelUsage, UsageFilter, CostCalculationMode};
 pub use projects::{ProjectAnalyzer, ProjectSummary, ProjectSortBy, ProjectStatistics};
+pub use timezone::TimezoneCalculator;
 
 #[cfg(test)]
 mod integration_tests {

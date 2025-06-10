@@ -694,7 +694,22 @@ fn handle_usage_command(
     json_output: bool,
     verbose: bool,
     colored: bool,
+    timezone_name: &str,
+    daily_cutoff_hour: u8,
 ) {
+    // Initialize timezone calculator
+    let timezone_calc = match analysis::TimezoneCalculator::new(timezone_name, daily_cutoff_hour) {
+        Ok(calc) => calc,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Invalid timezone configuration: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Invalid timezone configuration: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
     // Initialize database and components
     let database = match get_database() {
         Ok(db) => db,
@@ -749,13 +764,15 @@ fn handle_usage_command(
             json_output,
             verbose,
             colored,
+            timezone_name,
+            daily_cutoff_hour,
         );
         return;
     }
 
     // Parse timeframe into date filters
     let (final_project, final_since, final_until, final_model) = 
-        resolve_filters(timeframe, project, since, until, model);
+        resolve_filters(timeframe, project, since, until, model, &timezone_calc);
 
     // Create usage filter
     let usage_filter = UsageFilter {
@@ -981,31 +998,25 @@ fn resolve_filters(
     since: Option<String>,
     until: Option<String>,
     model: Option<String>,
+    timezone_calc: &analysis::TimezoneCalculator,
 ) -> (Option<String>, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>) {
     let (tf_project, tf_model, tf_since, tf_until) = match timeframe {
         Some(UsageTimeframe::Today { project: tf_project, model: tf_model }) => {
-            let today = Utc::now().date_naive();
-            let start = Utc.from_utc_datetime(&today.and_hms_opt(0, 0, 0).unwrap());
-            let end = Utc.from_utc_datetime(&today.and_hms_opt(23, 59, 59).unwrap());
+            let start = timezone_calc.today_start();
+            let end = timezone_calc.today_end();
             (tf_project, tf_model, Some(start), Some(end))
         },
         Some(UsageTimeframe::Yesterday { project: tf_project, model: tf_model }) => {
-            let yesterday = Utc::now().date_naive() - chrono::Duration::days(1);
-            let start = Utc.from_utc_datetime(&yesterday.and_hms_opt(0, 0, 0).unwrap());
-            let end = Utc.from_utc_datetime(&yesterday.and_hms_opt(23, 59, 59).unwrap());
+            let start = timezone_calc.yesterday_start();
+            let end = timezone_calc.yesterday_end();
             (tf_project, tf_model, Some(start), Some(end))
         },
         Some(UsageTimeframe::ThisWeek { project: tf_project, model: tf_model }) => {
-            let today = Utc::now().date_naive();
-            let days_since_monday = today.weekday().num_days_from_monday();
-            let monday = today - chrono::Duration::days(days_since_monday as i64);
-            let start = Utc.from_utc_datetime(&monday.and_hms_opt(0, 0, 0).unwrap());
+            let start = timezone_calc.this_week_start();
             (tf_project, tf_model, Some(start), None)
         },
         Some(UsageTimeframe::ThisMonth { project: tf_project, model: tf_model }) => {
-            let today = Utc::now().date_naive();
-            let first_of_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap();
-            let start = Utc.from_utc_datetime(&first_of_month.and_hms_opt(0, 0, 0).unwrap());
+            let start = timezone_calc.this_month_start();
             (tf_project, tf_model, Some(start), None)
         },
         Some(UsageTimeframe::Daily { project: tf_project, model: tf_model, days }) => {
@@ -1499,6 +1510,8 @@ fn handle_daily_usage_command(
     json_output: bool,
     verbose: bool,
     colored: bool,
+    timezone_name: &str,
+    daily_cutoff_hour: u8,
 ) {
     // Initialize database and components
     let database = match get_database() {
@@ -1890,7 +1903,9 @@ fn main() {
                 config.output.decimal_places,
                 cli.json,
                 cli.verbose,
-                colored
+                colored,
+                &config.timezone.timezone,
+                config.timezone.daily_cutoff_hour,
             );
         }
         Commands::Projects { sort_by } => {
