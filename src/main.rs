@@ -174,6 +174,36 @@ enum PricingSource {
 }
 
 #[derive(Subcommand)]
+enum ExportFormat {
+    /// Export to JSON format
+    Json {
+        /// Output file path
+        #[arg(short, long)]
+        output: String,
+    },
+    /// Export to CSV format (multiple files)
+    Csv {
+        /// Output directory path
+        #[arg(short, long)]
+        output: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ImportAction {
+    /// Import from JSON file
+    Json {
+        /// Input file path
+        #[arg(short, long)]
+        input: String,
+        
+        /// Merge with existing data (default: replace)
+        #[arg(long)]
+        merge: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum Commands {
     /// Show usage analysis
     Usage {
@@ -210,6 +240,16 @@ enum Commands {
     Pricing {
         #[command(subcommand)]
         action: PricingAction,
+    },
+    /// Export usage data
+    Export {
+        #[command(subcommand)]
+        format: ExportFormat,
+    },
+    /// Import usage data
+    Import {
+        #[command(subcommand)]
+        action: ImportAction,
     },
 }
 
@@ -477,6 +517,169 @@ fn get_database() -> anyhow::Result<Database> {
         .join("ccost")
         .join("cache.db");
     Database::new(&db_path)
+}
+
+fn handle_export_command(format: ExportFormat, json_output: bool) {
+    use sync::ExportImportManager;
+    use std::path::Path;
+
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    let manager = ExportImportManager::new(database);
+
+    match format {
+        ExportFormat::Json { output } => {
+            match manager.export_to_json(Path::new(&output)) {
+                Ok(export_data) => {
+                    if json_output {
+                        let result = serde_json::json!({
+                            "status": "success", 
+                            "message": format!("Exported {} model pricing entries, {} processed messages, {} exchange rates", 
+                                export_data.model_pricing.len(),
+                                export_data.processed_messages.len(),
+                                export_data.exchange_rates.len()),
+                            "output_file": output,
+                            "exported_at": export_data.exported_at
+                        });
+                        match serde_json::to_string_pretty(&result) {
+                            Ok(json) => println!("{}", json),
+                            Err(e) => {
+                                println!(r#"{{"status": "error", "message": "Failed to serialize export result: {}"}}"#, e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        println!("Successfully exported data to: {}", output);
+                        println!("  Model pricing entries: {}", export_data.model_pricing.len());
+                        println!("  Processed messages: {}", export_data.processed_messages.len());
+                        println!("  Exchange rates: {}", export_data.exchange_rates.len());
+                        println!("  Exported at: {}", export_data.exported_at.format("%Y-%m-%d %H:%M:%S UTC"));
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to export data: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to export data: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+        ExportFormat::Csv { output } => {
+            match manager.export_to_csv(Path::new(&output)) {
+                Ok(()) => {
+                    if json_output {
+                        let result = serde_json::json!({
+                            "status": "success",
+                            "message": "Successfully exported data to CSV files",
+                            "output_directory": output
+                        });
+                        match serde_json::to_string_pretty(&result) {
+                            Ok(json) => println!("{}", json),
+                            Err(e) => {
+                                println!(r#"{{"status": "error", "message": "Failed to serialize export result: {}"}}"#, e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        println!("Successfully exported data to CSV files in: {}", output);
+                        println!("  - processed_messages.csv");
+                        println!("  - model_pricing.csv");
+                        println!("  - exchange_rates.csv");
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to export CSV data: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to export CSV data: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+}
+
+fn handle_import_command(action: ImportAction, json_output: bool) {
+    use sync::ExportImportManager;
+    use std::path::Path;
+
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    let manager = ExportImportManager::new(database);
+
+    match action {
+        ImportAction::Json { input, merge } => {
+            match manager.import_from_json(Path::new(&input), merge) {
+                Ok(import_result) => {
+                    if json_output {
+                        let result = serde_json::json!({
+                            "status": "success",
+                            "message": format!("Successfully imported data from {}", input),
+                            "import_result": {
+                                "processed_messages_imported": import_result.processed_messages_imported,
+                                "model_pricing_imported": import_result.model_pricing_imported,
+                                "exchange_rates_imported": import_result.exchange_rates_imported,
+                                "conflicts_resolved": import_result.conflicts_resolved,
+                                "errors": import_result.errors
+                            }
+                        });
+                        match serde_json::to_string_pretty(&result) {
+                            Ok(json) => println!("{}", json),
+                            Err(e) => {
+                                println!(r#"{{"status": "error", "message": "Failed to serialize import result: {}"}}"#, e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        println!("Successfully imported data from: {}", input);
+                        println!("  Processed messages imported: {}", import_result.processed_messages_imported);
+                        println!("  Model pricing entries imported: {}", import_result.model_pricing_imported);
+                        println!("  Exchange rates imported: {}", import_result.exchange_rates_imported);
+                        if import_result.conflicts_resolved > 0 {
+                            println!("  Conflicts resolved: {}", import_result.conflicts_resolved);
+                        }
+                        if !import_result.errors.is_empty() {
+                            println!("  Errors encountered:");
+                            for error in import_result.errors {
+                                println!("    - {}", error);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to import data: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to import data: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
 }
 
 fn handle_usage_command(
@@ -1706,6 +1909,12 @@ fn main() {
         }
         Commands::Pricing { action } => {
             handle_pricing_action(action, cli.json);
+        }
+        Commands::Export { format } => {
+            handle_export_command(format, cli.json);
+        }
+        Commands::Import { action } => {
+            handle_import_command(action, cli.json);
         }
     }
 }
