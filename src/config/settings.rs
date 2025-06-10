@@ -39,6 +39,7 @@ pub struct OutputConfig {
     pub default_format: String, // "table" or "json"
     pub include_project_path: bool,
     pub decimal_places: u8,
+    pub colored: bool, // Enable colored table output by default
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +81,7 @@ impl Default for Config {
                 default_format: "table".to_string(),
                 include_project_path: false,
                 decimal_places: 2,
+                colored: false, // No colors by default
             },
             timezone: TimezoneConfig {
                 timezone: "UTC".to_string(),

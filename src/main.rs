@@ -52,6 +52,10 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
     
+    /// Enable colorized table output
+    #[arg(long, global = true)]
+    colored: bool,
+    
     #[command(subcommand)]
     command: Commands,
 }
@@ -470,6 +474,7 @@ fn handle_usage_command(
     decimal_places: u8,
     json_output: bool,
     verbose: bool,
+    colored: bool,
 ) {
     // Initialize database and components
     let database = match get_database() {
@@ -731,7 +736,7 @@ fn handle_usage_command(
             }
         }
     } else {
-        println!("{}", filtered_usage.to_table_with_currency(target_currency, decimal_places));
+        println!("{}", filtered_usage.to_table_with_currency_and_color(target_currency, decimal_places, colored));
     }
 }
 
@@ -871,6 +876,7 @@ fn handle_projects_command(
     decimal_places: u8,
     json_output: bool,
     verbose: bool,
+    colored: bool,
 ) {
     // Initialize database and components
     let database = match get_database() {
@@ -1111,7 +1117,7 @@ fn handle_projects_command(
             }
         }
     } else {
-        println!("{}", project_summaries.to_table_with_currency(target_currency, decimal_places));
+        println!("{}", project_summaries.to_table_with_currency_and_color(target_currency, decimal_places, colored));
         
         // Show summary stats
         println!();
@@ -1167,6 +1173,9 @@ fn main() {
     let target_currency = cli.currency.as_ref()
         .unwrap_or(&config.currency.default_currency);
     
+    // Determine final colored setting (CLI override takes precedence)
+    let colored = cli.colored || config.output.colored;
+    
     match cli.command {
         Commands::Usage { 
             timeframe,
@@ -1185,7 +1194,8 @@ fn main() {
                 config.currency.cache_ttl_hours,
                 config.output.decimal_places,
                 cli.json,
-                cli.verbose
+                cli.verbose,
+                colored
             );
         }
         Commands::Projects { sort_by } => {
@@ -1195,7 +1205,8 @@ fn main() {
                 config.currency.cache_ttl_hours,
                 config.output.decimal_places,
                 cli.json,
-                cli.verbose
+                cli.verbose,
+                colored
             );
         }
         Commands::Config { action } => {
