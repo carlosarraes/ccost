@@ -1,4 +1,4 @@
-use tabled::{Table, Tabled, settings::{Style, Alignment, Modify, object::{Rows, Columns}}};
+use tabled::{Table, Tabled, settings::{Style, Alignment, Modify, object::{Rows, Columns}, Color}};
 use serde::Serialize;
 use crate::analysis::usage::{ProjectUsage, ModelUsage};
 use crate::analysis::projects::ProjectSummary;
@@ -366,12 +366,19 @@ fn format_currency(amount: f64) -> String {
     format!("${:.2}", amount)
 }
 
-/// Apply modern table styling similar to the design reference
+/// Apply modern table styling similar to the design reference  
 fn apply_table_style(mut table: Table) -> String {
     table
-        .with(Style::modern())
+        .with(Style::blank()) // Minimal styling - no borders
+        // Set alignment
         .modify(Rows::new(1..), Alignment::right()) // Right-align all data rows
         .modify(Columns::new(0..1), Alignment::left())  // Left-align first column (project/model names)
+        // Add colors matching the design reference
+        .modify(Columns::new(0..1), Color::FG_WHITE)    // Project name in white  
+        .modify(Columns::new(1..3), Color::FG_BLUE)     // Token columns in blue
+        .modify(Columns::new(3..5), Color::FG_GREEN)    // Cache columns in green
+        .modify(Columns::new(5..6), Color::FG_YELLOW)   // Messages in yellow  
+        .modify(Columns::new(6..7), Color::FG_RED)      // Cost in red
         .to_string()
 }
 
