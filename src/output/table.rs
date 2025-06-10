@@ -73,7 +73,7 @@ impl ProjectUsageRow {
             cache_creation: format_number(usage.total_cache_creation_tokens),
             cache_read: format_number(usage.total_cache_read_tokens),
             messages: format_number(usage.message_count),
-            total_cost: format_currency(usage.total_cost_usd),
+            total_cost: format_currency_simple(usage.total_cost_usd),
         }
     }
 
@@ -99,7 +99,7 @@ impl ModelUsageRow {
             cache_creation: format_number(usage.cache_creation_tokens),
             cache_read: format_number(usage.cache_read_tokens),
             messages: format_number(usage.message_count),
-            cost: format_currency(usage.cost_usd),
+            cost: format_currency_simple(usage.cost_usd),
         }
     }
 
@@ -124,7 +124,7 @@ impl ProjectSummaryRow {
             total_tokens: format_number(total_tokens),
             messages: format_number(summary.message_count),
             models: summary.model_count.to_string(),
-            total_cost: format_currency(summary.total_cost_usd),
+            total_cost: format_currency_simple(summary.total_cost_usd),
         }
     }
 
@@ -166,7 +166,7 @@ impl OutputFormat for Vec<ProjectUsage> {
             cache_creation: format_number(total_cache_creation),
             cache_read: format_number(total_cache_read),
             messages: format_number(total_messages),
-            total_cost: format_currency(total_cost),
+            total_cost: format_currency_simple(total_cost),
         });
         
         apply_table_style_with_color(Table::new(rows), false, TableType::ProjectUsage)
@@ -265,7 +265,7 @@ impl OutputFormat for Vec<ModelUsage> {
             cache_creation: format_number(total_cache_creation),
             cache_read: format_number(total_cache_read),
             messages: format_number(total_messages),
-            cost: format_currency(total_cost),
+            cost: format_currency_simple(total_cost),
         });
         
         apply_table_style_with_color(Table::new(rows), false, TableType::ModelUsage)
@@ -361,7 +361,7 @@ impl OutputFormat for Vec<ProjectSummary> {
             total_tokens: format_number(total_input + total_output),
             messages: format_number(total_messages),
             models: total_models.to_string(),
-            total_cost: format_currency(total_cost),
+            total_cost: format_currency_simple(total_cost),
         });
         
         apply_table_style_with_color(Table::new(rows), false, TableType::ProjectSummary)
@@ -429,7 +429,7 @@ impl OutputFormat for Vec<ProjectSummary> {
 }
 
 /// Format a number with commas for thousands separator
-fn format_number(n: u64) -> String {
+pub fn format_number(n: u64) -> String {
     if n == 0 {
         return "0".to_string();
     }
@@ -448,13 +448,19 @@ fn format_number(n: u64) -> String {
     result
 }
 
-/// Format currency value with proper decimal places and dollar sign
-fn format_currency(amount: f64) -> String {
+/// Format currency value with proper decimal places and dollar sign (for internal use)
+fn format_currency_simple(amount: f64) -> String {
     if amount == 0.0 {
         return "$0.00".to_string();
     }
     
     format!("${:.2}", amount)
+}
+
+/// Format currency value with proper decimal places and currency symbol (for external use)
+pub fn format_currency(amount: f64, currency: &str, decimal_places: u8) -> String {
+    use crate::models::currency;
+    currency::format_currency(amount, currency, decimal_places)
 }
 
 /// Apply modern table styling similar to the design reference  
@@ -580,11 +586,11 @@ mod tests {
     }
 
     #[test]
-    fn test_format_currency() {
-        assert_eq!(format_currency(0.0), "$0.00");
-        assert_eq!(format_currency(1.5), "$1.50");
-        assert_eq!(format_currency(123.456), "$123.46");
-        assert_eq!(format_currency(1000.0), "$1000.00");
+    fn test_format_currency_simple() {
+        assert_eq!(format_currency_simple(0.0), "$0.00");
+        assert_eq!(format_currency_simple(1.5), "$1.50");
+        assert_eq!(format_currency_simple(123.456), "$123.46");
+        assert_eq!(format_currency_simple(1000.0), "$1000.00");
     }
 
     #[test]

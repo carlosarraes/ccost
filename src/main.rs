@@ -2,6 +2,8 @@
 use clap::{Parser, Subcommand};
 use chrono::{DateTime, Utc, NaiveDate, TimeZone, Datelike};
 use std::path::PathBuf;
+use std::collections::HashMap;
+use serde::Serialize;
 use config::Config;
 use models::{PricingManager, ModelPricing};
 use models::currency::CurrencyConverter;
@@ -103,6 +105,20 @@ enum UsageTimeframe {
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
+    },
+    /// Show daily usage breakdown
+    Daily {
+        /// Filter by project name
+        #[arg(long)]
+        project: Option<String>,
+        
+        /// Filter by model
+        #[arg(long)]
+        model: Option<String>,
+        
+        /// Number of days to show (default: 7)
+        #[arg(long, default_value = "7")]
+        days: u32,
     },
 }
 
@@ -518,6 +534,22 @@ fn handle_usage_command(
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
 
+    // Check if this is a daily command - requires special handling
+    if let Some(UsageTimeframe::Daily { project: daily_project, model: daily_model, days }) = &timeframe {
+        handle_daily_usage_command(
+            *days,
+            daily_project.clone().or(project),
+            daily_model.clone().or(model),
+            target_currency,
+            cache_ttl_hours,
+            decimal_places,
+            json_output,
+            verbose,
+            colored,
+        );
+        return;
+    }
+
     // Parse timeframe into date filters
     let (final_project, final_since, final_until, final_model) = 
         resolve_filters(timeframe, project, since, until, model);
@@ -651,7 +683,7 @@ fn handle_usage_command(
         .collect();
 
     // Calculate usage with the tracker
-    let project_usage = match usage_tracker.calculate_usage_with_projects(usage_tuples, &pricing_manager) {
+    let project_usage = match usage_tracker.calculate_usage_with_projects_filtered(usage_tuples, &pricing_manager, &usage_filter) {
         Ok(usage) => usage,
         Err(e) => {
             if json_output {
@@ -771,6 +803,12 @@ fn resolve_filters(
             let today = Utc::now().date_naive();
             let first_of_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap();
             let start = Utc.from_utc_datetime(&first_of_month.and_hms_opt(0, 0, 0).unwrap());
+            (tf_project, tf_model, Some(start), None)
+        },
+        Some(UsageTimeframe::Daily { project: tf_project, model: tf_model, days }) => {
+            let today = Utc::now().date_naive();
+            let days_ago = today - chrono::Duration::days(days as i64 - 1); // Include today
+            let start = Utc.from_utc_datetime(&days_ago.and_hms_opt(0, 0, 0).unwrap());
             (tf_project, tf_model, Some(start), None)
         },
         None => (None, None, None, None),
@@ -1135,6 +1173,460 @@ fn handle_projects_command(
         if let Some(ref most_active) = stats.most_active_project {
             println!("  Most Active Project: {}", most_active);
         }
+    }
+}
+
+// Helper structure for daily usage data
+#[derive(Debug, Clone, Serialize)]
+struct DailyUsage {
+    date: String,
+    total_input_tokens: u64,
+    total_output_tokens: u64,
+    total_cache_creation_tokens: u64,
+    total_cache_read_tokens: u64,
+    total_cost_usd: f64,
+    message_count: u64,
+    projects_count: usize,
+}
+
+// Wrapper for daily usage vector to implement OutputFormat
+#[derive(Debug, Clone, Serialize)]
+struct DailyUsageList(Vec<DailyUsage>);
+
+impl OutputFormat for DailyUsageList {
+    fn to_table(&self) -> String {
+        self.to_table_with_currency_and_color("USD", 2, false)
+    }
+
+    fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(&self.0)
+    }
+
+    fn to_table_with_currency(&self, currency: &str, decimal_places: u8) -> String {
+        self.to_table_with_currency_and_color(currency, decimal_places, false)
+    }
+
+    fn to_table_with_currency_and_color(&self, currency: &str, decimal_places: u8, colored: bool) -> String {
+        if self.0.is_empty() {
+            return "No daily usage data found.".to_string();
+        }
+
+        // Simple string-based table formatting
+        let header_color = if colored { "\x1b[37m\x1b[1m" } else { "" };
+        let reset_color = if colored { "\x1b[39m\x1b[22m" } else { "" };
+        
+        let mut result = String::new();
+        
+        // Header
+        result.push_str(&format!(" {}{:<12}{} {}{:>13}{} {}{:>14}{} {}{:>15}{} {}{:>11}{} {}{:>9}{} {}{:>9}{} {}{:>12}{}\n",
+            header_color, "Date", reset_color,
+            header_color, "Input Tokens", reset_color,
+            header_color, "Output Tokens", reset_color,
+            header_color, "Cache Creation", reset_color,
+            header_color, "Cache Read", reset_color,
+            header_color, "Messages", reset_color,
+            header_color, "Projects", reset_color,
+            header_color, "Total Cost", reset_color));
+        
+        // Separator
+        result.push_str(&"─".repeat(110));
+        result.push('\n');
+        
+        // Data rows
+        for daily in &self.0 {
+            let cost_str = output::table::format_currency(daily.total_cost_usd, currency, decimal_places);
+            let colored_cost = if colored {
+                format!("\x1b[31m{}\x1b[39m", cost_str)
+            } else {
+                cost_str
+            };
+            
+            result.push_str(&format!(" {:<12} {:>13} {:>14} {:>15} {:>11} {:>9} {:>9} {:>12}\n",
+                daily.date,
+                output::table::format_number(daily.total_input_tokens),
+                output::table::format_number(daily.total_output_tokens),
+                output::table::format_number(daily.total_cache_creation_tokens),
+                output::table::format_number(daily.total_cache_read_tokens),
+                output::table::format_number(daily.message_count),
+                daily.projects_count,
+                colored_cost));
+        }
+        
+        // Separator before totals
+        result.push_str(&"─".repeat(110));
+        result.push('\n');
+        
+        // Totals row
+        let total_input: u64 = self.0.iter().map(|d| d.total_input_tokens).sum();
+        let total_output: u64 = self.0.iter().map(|d| d.total_output_tokens).sum();
+        let total_cache_creation: u64 = self.0.iter().map(|d| d.total_cache_creation_tokens).sum();
+        let total_cache_read: u64 = self.0.iter().map(|d| d.total_cache_read_tokens).sum();
+        let total_messages: u64 = self.0.iter().map(|d| d.message_count).sum();
+        let total_cost: f64 = self.0.iter().map(|d| d.total_cost_usd).sum();
+        let total_projects: usize = self.0.iter().map(|d| d.projects_count).sum();
+
+        let total_cost_str = output::table::format_currency(total_cost, currency, decimal_places);
+        let colored_total_cost = if colored {
+            format!("\x1b[31m{}\x1b[39m", total_cost_str)
+        } else {
+            total_cost_str
+        };
+
+        result.push_str(&format!(" {:<12} {:>13} {:>14} {:>15} {:>11} {:>9} {:>9} {:>12}\n",
+            "TOTAL",
+            output::table::format_number(total_input),
+            output::table::format_number(total_output),
+            output::table::format_number(total_cache_creation),
+            output::table::format_number(total_cache_read),
+            output::table::format_number(total_messages),
+            total_projects,
+            colored_total_cost));
+
+        result
+    }
+}
+
+fn handle_daily_usage_command(
+    days: u32,
+    project_filter: Option<String>,
+    model_filter: Option<String>,
+    target_currency: &str,
+    cache_ttl_hours: u32,
+    decimal_places: u8,
+    json_output: bool,
+    verbose: bool,
+    colored: bool,
+) {
+    // Initialize database and components
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Find and parse JSONL files - use config setting
+    let config_for_projects = match Config::load() {
+        Ok(config) => config,
+        Err(_) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+            } else {
+                eprintln!("Error: Failed to load config for projects path");
+            }
+            std::process::exit(1);
+        }
+    };
+    
+    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+        // Expand tilde to home directory
+        if let Some(home_dir) = dirs::home_dir() {
+            home_dir.join(&config_for_projects.general.claude_projects_path[2..])
+        } else {
+            PathBuf::from(&config_for_projects.general.claude_projects_path)
+        }
+    } else {
+        PathBuf::from(&config_for_projects.general.claude_projects_path)
+    };
+
+    let pricing_manager = PricingManager::with_database(database);
+    let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
+    let parser = JsonlParser::new(projects_dir.clone());
+    let mut dedup_engine = DeduplicationEngine::new();
+
+    if verbose && !json_output {
+        println!("Searching for JSONL files in: {}", projects_dir.display());
+    }
+
+    let jsonl_files = match parser.find_jsonl_files() {
+        Ok(files) => files,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to find JSONL files: {}", e);
+                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if jsonl_files.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "warning", "message": "No JSONL files found", "data": []}}"#);
+        } else {
+            println!("No Claude usage data found in {}", projects_dir.display());
+            println!("Make sure you have conversations saved in Claude Desktop or CLI.");
+        }
+        return;
+    }
+
+    if verbose && !json_output {
+        println!("Found {} JSONL files", jsonl_files.len());
+    }
+
+    // Parse all files with deduplication
+    let mut all_usage_data = Vec::new();
+    let mut files_processed = 0;
+    let mut total_messages = 0;
+    let mut unique_messages = 0;
+
+    for file_path in jsonl_files {
+        // Extract project name from file path
+        let project_name = match parser.extract_project_path(&file_path) {
+            Ok(project_path) => project_path.to_string_lossy().to_string(),
+            Err(_) => "Unknown".to_string(),
+        };
+
+        // Apply project filter early if specified
+        if let Some(ref filter_project) = project_filter {
+            if project_name != *filter_project {
+                continue;
+            }
+        }
+
+        match parser.parse_file_with_verbose(&file_path, verbose) {
+            Ok(parsed_conversation) => {
+                total_messages += parsed_conversation.messages.len();
+                
+                // Apply deduplication
+                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                    Ok(unique_data) => {
+                        unique_messages += unique_data.len();
+                        
+                        // Create enhanced usage data with project name
+                        for data in unique_data {
+                            let enhanced_data = EnhancedUsageData {
+                                usage_data: data,
+                                project_name: project_name.clone(),
+                            };
+                            all_usage_data.push(enhanced_data);
+                        }
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                            } else {
+                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                            }
+                        }
+                        continue;
+                    }
+                }
+                
+                files_processed += 1;
+            }
+            Err(e) => {
+                if verbose {
+                    if json_output {
+                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                    } else {
+                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+
+    if verbose && !json_output {
+        println!("Processed {} files, {} total messages, {} unique messages", 
+                 files_processed, total_messages, unique_messages);
+    }
+
+    if all_usage_data.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+        } else {
+            println!("No usage data found matching your filters.");
+        }
+        return;
+    }
+
+    // Group usage by day
+    let mut daily_usage_map: HashMap<String, DailyUsage> = HashMap::new();
+
+    for enhanced in &all_usage_data {
+        let message = &enhanced.usage_data;
+        let project_name = &enhanced.project_name;
+
+        // Skip messages without usage data
+        let usage = match &message.usage {
+            Some(usage) => usage,
+            None => continue,
+        };
+
+        // Extract model name and apply model filter
+        let model_name = message.message
+            .as_ref()
+            .and_then(|m| m.model.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if let Some(ref filter_model) = model_filter {
+            if model_name != *filter_model {
+                continue;
+            }
+        }
+
+        // Parse timestamp and extract date
+        let date_key = if let Some(timestamp_str) = &message.timestamp {
+            if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
+                // Check if message is within the requested days range
+                let today = Utc::now().date_naive();
+                let cutoff_date = today - chrono::Duration::days(days as i64 - 1);
+                let message_date = message_time.date_naive();
+                
+                if message_date < cutoff_date {
+                    continue;
+                }
+                
+                message_date.format("%Y-%m-%d").to_string()
+            } else {
+                continue; // Skip messages with unparseable timestamps
+            }
+        } else {
+            continue; // Skip messages without timestamps
+        };
+
+        // Get or create daily usage entry
+        let daily_usage = daily_usage_map
+            .entry(date_key.clone())
+            .or_insert_with(|| DailyUsage {
+                date: date_key.clone(),
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                total_cache_creation_tokens: 0,
+                total_cache_read_tokens: 0,
+                total_cost_usd: 0.0,
+                message_count: 0,
+                projects_count: 0,
+            });
+
+        // Aggregate token counts
+        let input_tokens = usage.input_tokens.unwrap_or(0);
+        let output_tokens = usage.output_tokens.unwrap_or(0);
+        let cache_creation_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
+        let cache_read_tokens = usage.cache_read_input_tokens.unwrap_or(0);
+
+        daily_usage.total_input_tokens += input_tokens;
+        daily_usage.total_output_tokens += output_tokens;
+        daily_usage.total_cache_creation_tokens += cache_creation_tokens;
+        daily_usage.total_cache_read_tokens += cache_read_tokens;
+        daily_usage.message_count += 1;
+
+        // Calculate cost
+        let cost = if let Some(embedded_cost) = message.cost_usd {
+            embedded_cost
+        } else {
+            // Calculate from pricing
+            if let Some(pricing) = pricing_manager.get_pricing(&model_name) {
+                let input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input_cost_per_mtok;
+                let output_cost = (output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_mtok;
+                let cache_creation_cost = (cache_creation_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
+                let cache_read_cost = (cache_read_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
+                input_cost + output_cost + cache_creation_cost + cache_read_cost
+            } else {
+                0.0
+            }
+        };
+
+        daily_usage.total_cost_usd += cost;
+    }
+
+    // Count projects per day
+    let mut project_sets_by_day: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for enhanced in all_usage_data.iter() {
+        if let Some(timestamp_str) = &enhanced.usage_data.timestamp {
+            if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
+                let date_key = message_time.date_naive().format("%Y-%m-%d").to_string();
+                if daily_usage_map.contains_key(&date_key) {
+                    project_sets_by_day
+                        .entry(date_key)
+                        .or_insert_with(std::collections::HashSet::new)
+                        .insert(enhanced.project_name.clone());
+                }
+            }
+        }
+    }
+
+    // Update projects count
+    for (date, daily_usage) in daily_usage_map.iter_mut() {
+        if let Some(project_set) = project_sets_by_day.get(date) {
+            daily_usage.projects_count = project_set.len();
+        }
+    }
+
+    // Convert to sorted vector
+    let mut daily_usage_vec: Vec<DailyUsage> = daily_usage_map.into_values().collect();
+    daily_usage_vec.sort_by(|a, b| a.date.cmp(&b.date));
+
+    if daily_usage_vec.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No daily usage data found matching filters", "data": []}}"#);
+        } else {
+            println!("No daily usage data found matching your filters.");
+        }
+        return;
+    }
+
+    // Convert currencies if needed
+    if target_currency != "USD" {
+        if let Ok(db_clone) = get_database() {
+            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+            
+            // Create an async runtime for currency conversion
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to create async runtime: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            };
+            
+            // Convert all USD amounts to target currency
+            for daily in &mut daily_usage_vec {
+                match rt.block_on(currency_converter.convert_from_usd(daily.total_cost_usd, target_currency)) {
+                    Ok(converted_cost) => {
+                        daily.total_cost_usd = converted_cost;
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, daily.date, e);
+                            } else {
+                                eprintln!("Warning: Failed to convert currency for {}: {}", daily.date, e);
+                            }
+                        }
+                        // Keep USD amounts if conversion fails
+                    }
+                }
+            }
+        }
+    }
+
+    // Wrap in our display wrapper after currency conversion
+    let daily_usage_list = DailyUsageList(daily_usage_vec);
+
+    // Display results
+    if json_output {
+        match daily_usage_list.to_json() {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("{}", daily_usage_list.to_table_with_currency_and_color(target_currency, decimal_places, colored));
     }
 }
 
