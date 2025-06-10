@@ -732,20 +732,6 @@ fn handle_usage_command(
         }
     } else {
         println!("{}", filtered_usage.to_table_with_currency(target_currency, decimal_places));
-        
-        // Show summary stats
-        let total_cost: f64 = filtered_usage.iter().map(|p| p.total_cost_usd).sum();
-        let total_messages: u64 = filtered_usage.iter().map(|p| p.message_count).sum();
-        let total_input_tokens: u64 = filtered_usage.iter().map(|p| p.total_input_tokens).sum();
-        let total_output_tokens: u64 = filtered_usage.iter().map(|p| p.total_output_tokens).sum();
-        
-        println!();
-        println!("Summary:");
-        println!("  Projects: {}", filtered_usage.len());
-        println!("  Messages: {}", format_number(total_messages));
-        println!("  Input Tokens: {}", format_number(total_input_tokens));
-        println!("  Output Tokens: {}", format_number(total_output_tokens));
-        println!("  Total Cost: {}", models::currency::format_currency(total_cost, target_currency, decimal_places));
     }
 }
 

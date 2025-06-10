@@ -1,4 +1,4 @@
-use tabled::{Table, Tabled};
+use tabled::{Table, Tabled, settings::{Style, Alignment, Modify, object::{Rows, Columns}}};
 use serde::Serialize;
 use crate::analysis::usage::{ProjectUsage, ModelUsage};
 use crate::analysis::projects::ProjectSummary;
@@ -367,10 +367,12 @@ fn format_currency(amount: f64) -> String {
 }
 
 /// Apply modern table styling similar to the design reference
-fn apply_table_style(table: Table) -> String {
-    // For now, return basic table styling
-    // TODO: Add advanced styling with proper tabled settings imports
-    table.to_string()
+fn apply_table_style(mut table: Table) -> String {
+    table
+        .with(Style::modern())
+        .modify(Rows::new(1..), Alignment::right()) // Right-align all data rows
+        .modify(Columns::new(0..1), Alignment::left())  // Left-align first column (project/model names)
+        .to_string()
 }
 
 #[cfg(test)]
