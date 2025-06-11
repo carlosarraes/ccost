@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
+use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::parser::jsonl::JsonlParser;
@@ -34,6 +35,8 @@ pub struct WatchMode {
     dedup_engine: DeduplicationEngine,
     // Session tracking for current session cost tracking
     session_tracker: SessionTracker,
+    // File watcher task handle for proper cleanup
+    file_watcher_task: Option<JoinHandle<()>>,
 }
 
 impl WatchMode {
@@ -90,6 +93,7 @@ impl WatchMode {
             file_message_counts: HashMap::new(),
             dedup_engine,
             session_tracker,
+            file_watcher_task: None,
         })
     }
 
@@ -160,15 +164,40 @@ impl WatchMode {
                 // Check if dashboard task completed (user quit)
                 result = &mut dashboard_task => {
                     match result {
-                        Ok(Ok(())) => break, // Clean exit
-                        Ok(Err(e)) => return Err(e), // Dashboard error
-                        Err(e) => return Err(anyhow::anyhow!("Dashboard task panicked: {}", e)), // Task panic
+                        Ok(Ok(())) => {
+                            // Clean exit - perform cleanup
+                            self.cleanup().await;
+                            break;
+                        }
+                        Ok(Err(e)) => {
+                            // Dashboard error - cleanup and return error
+                            self.cleanup().await;
+                            return Err(e);
+                        }
+                        Err(e) => {
+                            // Task panic - cleanup and return error
+                            self.cleanup().await;
+                            return Err(anyhow::anyhow!("Dashboard task panicked: {}", e));
+                        }
                     }
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Cleanup background tasks when exiting watch mode
+    async fn cleanup(&mut self) {
+        // Cancel the file watcher task if it's running
+        if let Some(task_handle) = self.file_watcher_task.take() {
+            task_handle.abort();
+            // Wait a short time for graceful shutdown
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(100), 
+                task_handle
+            ).await;
+        }
     }
 
     async fn start_file_watcher(&mut self) -> Result<()> {
@@ -184,13 +213,16 @@ impl WatchMode {
             self.event_sender.clone(),
         )?;
 
-        // Spawn the file watcher task
+        // Spawn the file watcher task and store handle for cleanup
         let event_sender = self.event_sender.clone();
-        tokio::spawn(async move {
+        let task_handle = tokio::spawn(async move {
             if let Err(e) = file_watcher.run_with_receiver(file_receiver).await {
                 let _ = event_sender.send(FileEvent::Error(format!("File watcher error: {}", e)));
             }
         });
+        
+        // Store the task handle for proper cleanup
+        self.file_watcher_task = Some(task_handle);
 
         Ok(())
     }
@@ -369,6 +401,15 @@ impl WatchMode {
         // This would need to be implemented if we want to expose dashboard state
         // For now, the dashboard manages its own state internally
         todo!("Dashboard state access not implemented")
+    }
+}
+
+impl Drop for WatchMode {
+    fn drop(&mut self) {
+        // Abort any running file watcher task
+        if let Some(task_handle) = self.file_watcher_task.take() {
+            task_handle.abort();
+        }
     }
 }
 
@@ -615,5 +656,69 @@ mod tests {
         // Verify sessions are cleared
         assert_eq!(watch_mode.get_total_session_cost(), 0.0);
         assert_eq!(watch_mode.get_active_sessions().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_file_watcher_task_cleanup() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        
+        // Create projects directory
+        let projects_dir = temp_dir.path().join("projects");
+        fs::create_dir_all(&projects_dir).unwrap();
+        config.general.claude_projects_path = projects_dir.to_string_lossy().to_string();
+        
+        let mut watch_mode = WatchMode::new(config, None, 0.10, 200).unwrap();
+        
+        // Start file watcher - this should store the task handle
+        let result = watch_mode.start_file_watcher().await;
+        assert!(result.is_ok(), "File watcher should start successfully");
+        
+        // Verify task handle is stored
+        assert!(watch_mode.file_watcher_task.is_some(), "File watcher task handle should be stored");
+        
+        // Call cleanup
+        watch_mode.cleanup().await;
+        
+        // Verify task handle is removed (taken by cleanup)
+        assert!(watch_mode.file_watcher_task.is_none(), "File watcher task handle should be removed after cleanup");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_handles_no_task() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.general.claude_projects_path = temp_dir.path().join("projects").to_string_lossy().to_string();
+        
+        let mut watch_mode = WatchMode::new(config, None, 0.10, 200).unwrap();
+        
+        // Call cleanup without starting file watcher - should not panic
+        watch_mode.cleanup().await;
+        
+        // Should still be None
+        assert!(watch_mode.file_watcher_task.is_none(), "No task handle should exist");
+    }
+
+    #[test]  
+    fn test_drop_cleanup() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.general.claude_projects_path = temp_dir.path().join("projects").to_string_lossy().to_string();
+        
+        let mut watch_mode = WatchMode::new(config, None, 0.10, 200).unwrap();
+        
+        // Simulate having a task handle (we can't actually start the task in sync test)
+        let dummy_task = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        });
+        watch_mode.file_watcher_task = Some(dummy_task);
+        
+        // Verify task exists
+        assert!(watch_mode.file_watcher_task.is_some(), "Task should be present before drop");
+        
+        // Drop should automatically cleanup - this happens when watch_mode goes out of scope
+        drop(watch_mode);
+        
+        // Test passes if no panic occurs during drop
     }
 }
