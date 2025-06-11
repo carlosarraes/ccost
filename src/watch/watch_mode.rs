@@ -365,6 +365,14 @@ impl WatchMode {
         self.file_message_counts.clear();
         // Also reset deduplication engine to match user expectation
         let _ = self.dedup_engine.clear_history();
+        // CRITICAL FIX: Reset session tracking to prevent cost carryover
+        self.session_tracker.reset_sessions();
+    }
+
+    /// Reset session tracking to start fresh cost tracking
+    /// This ensures each new watch session starts from $0.00
+    pub fn reset_sessions(&mut self) {
+        self.session_tracker.reset_sessions();
     }
 
     /// Get current active session costs
@@ -464,9 +472,9 @@ mod tests {
         fs::create_dir_all(&project_dir).unwrap();
         
         let test_file = project_dir.join("conversation.jsonl");
-        let content = r#"{"uuid":"msg1","requestId":"req1","message":{"content":"Hello","model":"claude-sonnet-4"},"usage":{"inputTokens":10,"outputTokens":20},"costUSD":0.001}
-{"uuid":"msg2","requestId":"req2","message":{"content":"World","model":"claude-sonnet-4"},"usage":{"inputTokens":15,"outputTokens":25},"costUSD":0.002}
-{"uuid":"msg1","requestId":"req1","message":{"content":"Hello","model":"claude-sonnet-4"},"usage":{"inputTokens":10,"outputTokens":20},"costUSD":0.001}"#;
+        let content = r#"{"uuid":"msg1","requestId":"req1","message":{"content":"Hello","model":"claude-sonnet-4"},"usage":{"inputTokens":10,"outputTokens":20},"costUSD":0.001,"cwd":"/home/user/test-project","originalCwd":"/home/user/test-project"}
+{"uuid":"msg2","requestId":"req2","message":{"content":"World","model":"claude-sonnet-4"},"usage":{"inputTokens":15,"outputTokens":25},"costUSD":0.002,"cwd":"/home/user/test-project","originalCwd":"/home/user/test-project"}
+{"uuid":"msg1","requestId":"req1","message":{"content":"Hello","model":"claude-sonnet-4"},"usage":{"inputTokens":10,"outputTokens":20},"costUSD":0.001,"cwd":"/home/user/test-project","originalCwd":"/home/user/test-project"}"#;
         
         fs::write(&test_file, content).unwrap();
         
@@ -485,5 +493,136 @@ mod tests {
         }).sum();
         
         assert!((total_cost - 0.003).abs() < 0.0001, "Expected 0.003, got {}", total_cost);
+    }
+
+    #[tokio::test]
+    async fn test_session_cost_reset_on_new_watch_mode() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.general.claude_projects_path = temp_dir.path().join("projects").to_string_lossy().to_string();
+        
+        // Create first watch mode instance and simulate activity
+        let mut watch_mode1 = WatchMode::new(config.clone(), None, 0.10, 200).unwrap();
+        
+        // Create test JSONL file to simulate activity
+        let projects_dir = temp_dir.path().join("projects");
+        let project_dir = projects_dir.join("test-project");
+        fs::create_dir_all(&project_dir).unwrap();
+        
+        let test_file = project_dir.join("conversation.jsonl");
+        let content = r#"{"uuid":"msg1","requestId":"req1","message":{"content":"Hello","model":"claude-sonnet-4"},"usage":{"inputTokens":100,"outputTokens":200},"costUSD":0.1,"cwd":"/home/user/test-project","originalCwd":"/home/user/test-project"}"#;
+        fs::write(&test_file, content).unwrap();
+        
+        // Process file to create session activity
+        let _ = watch_mode1.process_file_change(test_file.clone()).await.unwrap();
+        
+        // Verify session has activity
+        let session_cost1 = watch_mode1.get_total_session_cost();
+        assert!(session_cost1 > 0.0, "First session should have non-zero cost, got {}", session_cost1);
+        
+        // Create new watch mode instance (simulating restart)
+        let watch_mode2 = WatchMode::new(config, None, 0.10, 200).unwrap();
+        
+        // Verify new session starts at $0
+        let session_cost2 = watch_mode2.get_total_session_cost();
+        assert_eq!(session_cost2, 0.0, "New watch mode session should start at $0, got {}", session_cost2);
+    }
+
+    #[tokio::test]
+    async fn test_reset_file_tracking_resets_sessions() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.general.claude_projects_path = temp_dir.path().join("projects").to_string_lossy().to_string();
+        let mut watch_mode = WatchMode::new(config, None, 0.10, 200).unwrap();
+        
+        // Create test JSONL file
+        let projects_dir = temp_dir.path().join("projects");
+        let project_dir = projects_dir.join("test-project");
+        fs::create_dir_all(&project_dir).unwrap();
+        
+        let test_file = project_dir.join("conversation.jsonl");
+        let content = r#"{"uuid":"msg1","requestId":"req1","message":{"content":"Hello","model":"claude-sonnet-4"},"usage":{"inputTokens":100,"outputTokens":200},"costUSD":0.1,"cwd":"/home/user/test-project","originalCwd":"/home/user/test-project"}"#;
+        fs::write(&test_file, content).unwrap();
+        
+        // Process file to create session activity
+        let _ = watch_mode.process_file_change(test_file).await.unwrap();
+        
+        // Verify session has activity
+        let session_cost_before = watch_mode.get_total_session_cost();
+        assert!(session_cost_before > 0.0, "Session should have activity before reset");
+        
+        // Reset file tracking (user presses 'r' in dashboard)
+        watch_mode.reset_file_tracking();
+        
+        // Verify sessions are reset
+        let session_cost_after = watch_mode.get_total_session_cost();
+        assert_eq!(session_cost_after, 0.0, "Sessions should be reset to $0 after reset_file_tracking");
+    }
+
+    #[tokio::test]
+    async fn test_session_cost_no_carryover_between_restarts() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.general.claude_projects_path = temp_dir.path().join("projects").to_string_lossy().to_string();
+        
+        // Create test JSONL file
+        let projects_dir = temp_dir.path().join("projects");
+        let project_dir = projects_dir.join("test-project");
+        fs::create_dir_all(&project_dir).unwrap();
+        
+        let test_file = project_dir.join("conversation.jsonl");
+        let content = r#"{"uuid":"msg1","requestId":"req1","message":{"content":"Hello","model":"claude-sonnet-4"},"usage":{"inputTokens":100,"outputTokens":200},"costUSD":0.1,"cwd":"/home/user/test-project","originalCwd":"/home/user/test-project"}
+{"uuid":"msg2","requestId":"req2","message":{"content":"World","model":"claude-sonnet-4"},"usage":{"inputTokens":150,"outputTokens":250},"costUSD":0.15,"cwd":"/home/user/test-project","originalCwd":"/home/user/test-project"}"#;
+        fs::write(&test_file, content).unwrap();
+        
+        // First session
+        {
+            let mut watch_mode1 = WatchMode::new(config.clone(), None, 0.10, 200).unwrap();
+            let _ = watch_mode1.process_file_change(test_file.clone()).await.unwrap();
+            let session1_cost = watch_mode1.get_total_session_cost();
+            assert!(session1_cost > 0.0, "Session 1 should have activity");
+        }
+        
+        // Second session (restart)
+        {
+            let mut watch_mode2 = WatchMode::new(config.clone(), None, 0.10, 200).unwrap();
+            // Session should start at $0 even though same file exists
+            let initial_cost = watch_mode2.get_total_session_cost();
+            assert_eq!(initial_cost, 0.0, "Session 2 should start at $0");
+            
+            // Process file again
+            let _ = watch_mode2.process_file_change(test_file.clone()).await.unwrap();
+            let session2_cost = watch_mode2.get_total_session_cost();
+            assert!(session2_cost > 0.0, "Session 2 should accumulate costs after processing");
+        }
+        
+        // Third session (restart)
+        {
+            let watch_mode3 = WatchMode::new(config, None, 0.10, 200).unwrap();
+            let session3_cost = watch_mode3.get_total_session_cost();
+            assert_eq!(session3_cost, 0.0, "Session 3 should start at $0");
+        }
+    }
+
+    #[test]
+    fn test_reset_sessions_method() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.general.claude_projects_path = temp_dir.path().join("projects").to_string_lossy().to_string();
+        let mut watch_mode = WatchMode::new(config, None, 0.10, 200).unwrap();
+        
+        // Manually add session activity using session tracker
+        watch_mode.session_tracker.update_activity("test-project", 1000, 0.5, "claude-3-sonnet");
+        
+        // Verify session exists
+        assert_eq!(watch_mode.get_total_session_cost(), 0.5);
+        assert_eq!(watch_mode.get_active_sessions().len(), 1);
+        
+        // Reset sessions
+        watch_mode.reset_sessions();
+        
+        // Verify sessions are cleared
+        assert_eq!(watch_mode.get_total_session_cost(), 0.0);
+        assert_eq!(watch_mode.get_active_sessions().len(), 0);
     }
 }

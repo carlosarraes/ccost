@@ -509,6 +509,8 @@ mod tests {
                 cache_read_input_tokens: cache_read,
             }),
             cost_usd,
+            cwd: None,
+            original_cwd: None,
         }
     }
 
@@ -684,6 +686,8 @@ mod tests {
                 }),
                 usage: None,
                 cost_usd: None,
+                cwd: None,
+                original_cwd: None,
             },
             // Normal message
             create_test_usage_data(
@@ -762,6 +766,8 @@ mod tests {
                 cache_read_input_tokens: None,
             }),
             cost_usd: Some(0.50),
+            cwd: None,
+            original_cwd: None,
         };
         
         let model = tracker.extract_model_from_message(&message_no_model);

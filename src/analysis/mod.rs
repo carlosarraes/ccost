@@ -49,6 +49,8 @@ mod integration_tests {
                     cache_read_input_tokens: None,
                 }),
                 cost_usd: Some(0.45),
+                cwd: None,
+                original_cwd: None,
             },
             UsageData {
                 timestamp: Some("2025-06-09T10:01:00Z".to_string()),
@@ -67,6 +69,8 @@ mod integration_tests {
                     cache_read_input_tokens: Some(5),
                 }),
                 cost_usd: Some(1.20),
+                cwd: None,
+                original_cwd: None,
             },
             UsageData {
                 timestamp: Some("2025-06-09T10:02:00Z".to_string()),
@@ -85,6 +89,8 @@ mod integration_tests {
                     cache_read_input_tokens: Some(15),
                 }),
                 cost_usd: Some(0.82),
+                cwd: None,
+                original_cwd: None,
             },
         ];
         
@@ -150,6 +156,8 @@ mod integration_tests {
                     cache_read_input_tokens: None,
                 }),
                 cost_usd: Some(0.75), // Has embedded cost
+                cwd: None,
+                original_cwd: None,
             },
             // Message without embedded cost
             UsageData {
@@ -167,6 +175,8 @@ mod integration_tests {
                     cache_read_input_tokens: None,
                 }),
                 cost_usd: None, // No embedded cost - will calculate (currently 0.0)
+                cwd: None,
+                original_cwd: None,
             },
         ];
         

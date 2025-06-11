@@ -636,6 +636,8 @@ mod tests {
                 cache_read_input_tokens: None,
             }),
             cost_usd: Some(cost),
+            cwd: None,
+            original_cwd: None,
         }
     }
 
