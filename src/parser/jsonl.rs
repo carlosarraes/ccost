@@ -86,6 +86,9 @@ pub struct UsageData {
     pub usage: Option<Usage>,
     #[serde(rename = "costUSD")]
     pub cost_usd: Option<f64>,
+    pub cwd: Option<String>,
+    #[serde(rename = "originalCwd")]
+    pub original_cwd: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,8 +99,10 @@ pub struct ParsedConversation {
     pub total_lines: usize,
     pub parsed_lines: usize,
     pub skipped_lines: usize,
+    pub smart_project_name: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct JsonlParser {
     base_dir: PathBuf,
 }
@@ -177,6 +182,9 @@ impl JsonlParser {
             }
         }
 
+        // Extract smart project name from cwd/originalCwd in messages
+        let smart_project_name = self.extract_smart_project_name(&messages);
+
         Ok(ParsedConversation {
             project_path,
             file_path: file_path.to_path_buf(),
@@ -184,6 +192,7 @@ impl JsonlParser {
             total_lines,
             parsed_lines,
             skipped_lines,
+            smart_project_name,
         })
     }
 
@@ -228,6 +237,41 @@ impl JsonlParser {
         }
         
         usage_data
+    }
+
+    /// Extract smart project name from cwd/originalCwd fields in messages
+    fn extract_smart_project_name(&self, messages: &[UsageData]) -> Option<String> {
+        // Try to find a message with cwd or originalCwd
+        for message in messages {
+            if let Some(ref cwd) = message.cwd {
+                if let Some(project_name) = self.extract_project_name_from_path(cwd) {
+                    return Some(project_name);
+                }
+            }
+            if let Some(ref original_cwd) = message.original_cwd {
+                if let Some(project_name) = self.extract_project_name_from_path(original_cwd) {
+                    return Some(project_name);
+                }
+            }
+        }
+        None
+    }
+
+    /// Extract meaningful project name from a file path
+    fn extract_project_name_from_path(&self, path: &str) -> Option<String> {
+        let path = Path::new(path);
+        
+        // Handle special cases like .config/nvim -> nvim
+        if let Some(parent) = path.parent() {
+            if let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
+                if parent_name == ".config" {
+                    return path.file_name()?.to_str().map(|s| s.to_string());
+                }
+            }
+        }
+        
+        // Default: use the last directory component
+        path.file_name()?.to_str().map(|s| s.to_string())
     }
 
     /// Find all JSONL files in the projects directory

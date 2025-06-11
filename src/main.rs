@@ -21,7 +21,7 @@ mod models;
 mod analysis;
 mod output;
 mod sync;
-mod alerts;
+mod watch;
 
 // Helper structure to associate usage data with project name
 #[derive(Debug, Clone)]
@@ -195,33 +195,6 @@ enum ImportAction {
     },
 }
 
-#[derive(Subcommand)]
-enum AlertAction {
-    /// List current alert configuration and status
-    List,
-    /// Enable specific alert type
-    Enable {
-        /// Alert type (daily_spending, weekly_spending, monthly_spending, daily_tokens, opus_efficiency, cache_rate, spending_spike)
-        alert_type: String,
-        /// Optional threshold value
-        #[arg(long)]
-        threshold: Option<f64>,
-    },
-    /// Disable specific alert type
-    Disable {
-        /// Alert type to disable
-        alert_type: String,
-    },
-    /// Test desktop notification system
-    Test,
-    /// Configure alert threshold
-    Set {
-        /// Threshold type (daily_spending, weekly_spending, monthly_spending, daily_tokens, cache_hit_rate, opus_usage, spending_spike_factor)
-        threshold_type: String,
-        /// Threshold value
-        value: f64,
-    },
-}
 
 #[derive(Subcommand)]
 enum Commands {
@@ -345,10 +318,23 @@ enum Commands {
         #[command(subcommand)]
         action: ImportAction,
     },
-    /// Manage usage alerts and notifications
-    Alerts {
-        #[command(subcommand)]
-        action: AlertAction,
+    /// Real-time usage monitoring
+    Watch {
+        /// Filter by specific project
+        #[arg(long)]
+        project: Option<String>,
+        
+        /// Expensive conversation threshold in USD
+        #[arg(long, default_value = "0.10")]
+        threshold: f64,
+        
+        /// Disable charts and sparklines
+        #[arg(long)]
+        no_charts: bool,
+        
+        /// Refresh rate in milliseconds
+        #[arg(long, default_value = "200")]
+        refresh_rate: u64,
     },
 }
 
@@ -565,270 +551,6 @@ fn handle_export_command(format: ExportFormat, json_output: bool) {
     }
 }
 
-fn handle_alerts_command(action: AlertAction, json_output: bool) {
-    use alerts::{AlertSystem, AlertThresholds};
-    
-    // Load configuration
-    let mut config = match Config::load() {
-        Ok(config) => config,
-        Err(e) => {
-            if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to load config: {}"}}"#, e);
-            } else {
-                eprintln!("Error: Failed to load config: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
-
-    match action {
-        AlertAction::List => {
-            // Create alert system from config
-            let thresholds = AlertThresholds {
-                daily_spending_limit: config.alerts.daily_spending_limit,
-                weekly_spending_limit: config.alerts.weekly_spending_limit,
-                monthly_spending_limit: config.alerts.monthly_spending_limit,
-                daily_token_limit: config.alerts.daily_token_limit,
-                cache_hit_rate_threshold: config.alerts.cache_hit_rate_threshold,
-                opus_usage_threshold: config.alerts.opus_usage_threshold,
-                spending_spike_factor: config.alerts.spending_spike_factor,
-                enabled_alerts: config.alerts.enabled_alert_types.clone(),
-            };
-            
-            let alert_system = AlertSystem::new(thresholds, config.alerts.desktop_notifications);
-            let status_list = alert_system.get_alert_status();
-            
-            if json_output {
-                let json_output = serde_json::json!({
-                    "alerts_enabled": config.alerts.enabled,
-                    "desktop_notifications": config.alerts.desktop_notifications,
-                    "notification_support": AlertSystem::notifications_available(),
-                    "alert_status": status_list.iter().map(|s| serde_json::json!({
-                        "alert_type": s.alert_type,
-                        "enabled": s.enabled,
-                        "status": s.status_text(),
-                        "last_triggered": s.last_triggered,
-                        "can_trigger": s.can_trigger
-                    })).collect::<Vec<_>>(),
-                    "thresholds": {
-                        "daily_spending_limit": config.alerts.daily_spending_limit,
-                        "weekly_spending_limit": config.alerts.weekly_spending_limit,
-                        "monthly_spending_limit": config.alerts.monthly_spending_limit,
-                        "daily_token_limit": config.alerts.daily_token_limit,
-                        "cache_hit_rate_threshold": config.alerts.cache_hit_rate_threshold,
-                        "opus_usage_threshold": config.alerts.opus_usage_threshold,
-                        "spending_spike_factor": config.alerts.spending_spike_factor
-                    }
-                });
-                match serde_json::to_string_pretty(&json_output) {
-                    Ok(json) => println!("{}", json),
-                    Err(e) => {
-                        println!(r#"{{"status": "error", "message": "Failed to serialize alert status: {}"}}"#, e);
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                println!("Alert System Status:");
-                println!("  Alerts Enabled: {}", config.alerts.enabled);
-                println!("  Desktop Notifications: {}", config.alerts.desktop_notifications);
-                println!("  Notification Support: {}", AlertSystem::notifications_available());
-                println!();
-                
-                println!("Alert Types:");
-                for status in status_list {
-                    println!("  {}: {} ({})", 
-                        status.alert_type, 
-                        if status.enabled { "Enabled" } else { "Disabled" },
-                        status.status_text()
-                    );
-                }
-                
-                println!();
-                println!("Current Thresholds:");
-                if let Some(limit) = config.alerts.daily_spending_limit {
-                    println!("  Daily Spending Limit: ${:.2}", limit);
-                }
-                if let Some(limit) = config.alerts.weekly_spending_limit {
-                    println!("  Weekly Spending Limit: ${:.2}", limit);
-                }
-                if let Some(limit) = config.alerts.monthly_spending_limit {
-                    println!("  Monthly Spending Limit: ${:.2}", limit);
-                }
-                if let Some(limit) = config.alerts.daily_token_limit {
-                    println!("  Daily Token Limit: {}", format_number(limit));
-                }
-                if let Some(rate) = config.alerts.cache_hit_rate_threshold {
-                    println!("  Cache Hit Rate Threshold: {:.1}%", rate * 100.0);
-                }
-                if let Some(threshold) = config.alerts.opus_usage_threshold {
-                    println!("  Opus Usage Threshold: {} messages/day", threshold);
-                }
-                if let Some(factor) = config.alerts.spending_spike_factor {
-                    println!("  Spending Spike Factor: {:.1}x", factor);
-                }
-            }
-        },
-        AlertAction::Enable { alert_type, threshold } => {
-            // Validate alert type
-            let valid_types = [
-                "daily_spending", "weekly_spending", "monthly_spending", 
-                "daily_tokens", "opus_efficiency", "cache_rate", "spending_spike"
-            ];
-            if !valid_types.contains(&alert_type.as_str()) {
-                if json_output {
-                    println!(r#"{{"status": "error", "message": "Invalid alert type: {}. Valid types: {}"}}"#, 
-                        alert_type, valid_types.join(", "));
-                } else {
-                    eprintln!("Error: Invalid alert type: {}. Valid types: {}", 
-                        alert_type, valid_types.join(", "));
-                }
-                std::process::exit(1);
-            }
-            
-            // Enable the alert type
-            if !config.alerts.enabled_alert_types.contains(&alert_type) {
-                config.alerts.enabled_alert_types.push(alert_type.clone());
-            }
-            
-            // Set threshold if provided
-            if let Some(threshold_value) = threshold {
-                match alert_type.as_str() {
-                    "daily_spending" => config.alerts.daily_spending_limit = Some(threshold_value),
-                    "weekly_spending" => config.alerts.weekly_spending_limit = Some(threshold_value),
-                    "monthly_spending" => config.alerts.monthly_spending_limit = Some(threshold_value),
-                    "daily_tokens" => config.alerts.daily_token_limit = Some(threshold_value as u64),
-                    "cache_rate" => config.alerts.cache_hit_rate_threshold = Some(threshold_value as f32),
-                    "opus_efficiency" => config.alerts.opus_usage_threshold = Some(threshold_value as u32),
-                    "spending_spike" => config.alerts.spending_spike_factor = Some(threshold_value as f32),
-                    _ => {},
-                }
-            }
-            
-            // Save config
-            match config.save() {
-                Ok(()) => {
-                    if json_output {
-                        println!(r#"{{"status": "success", "message": "Alert type '{}' enabled"}}"#, alert_type);
-                    } else {
-                        println!("Alert type '{}' enabled", alert_type);
-                        if let Some(value) = threshold {
-                            println!("Threshold set to: {}", value);
-                        }
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to save config: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to save config: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        },
-        AlertAction::Disable { alert_type } => {
-            // Remove from enabled alerts
-            config.alerts.enabled_alert_types.retain(|x| x != &alert_type);
-            
-            // Save config
-            match config.save() {
-                Ok(()) => {
-                    if json_output {
-                        println!(r#"{{"status": "success", "message": "Alert type '{}' disabled"}}"#, alert_type);
-                    } else {
-                        println!("Alert type '{}' disabled", alert_type);
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to save config: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to save config: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        },
-        AlertAction::Test => {
-            if !AlertSystem::notifications_available() {
-                if json_output {
-                    println!(r#"{{"status": "error", "message": "Desktop notifications are not available on this system"}}"#);
-                } else {
-                    eprintln!("Error: Desktop notifications are not available on this system");
-                }
-                std::process::exit(1);
-            }
-            
-            let alert_system = AlertSystem::new(AlertThresholds::default(), true);
-            match alert_system.test_notifications() {
-                Ok(()) => {
-                    if json_output {
-                        println!(r#"{{"status": "success", "message": "Test notification sent successfully"}}"#);
-                    } else {
-                        println!("Test notification sent successfully! Check your desktop for the notification.");
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to send test notification: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to send test notification: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        },
-        AlertAction::Set { threshold_type, value } => {
-            let config_key = match threshold_type.as_str() {
-                "daily_spending" => "alerts.daily_spending_limit",
-                "weekly_spending" => "alerts.weekly_spending_limit", 
-                "monthly_spending" => "alerts.monthly_spending_limit",
-                "daily_tokens" => "alerts.daily_token_limit",
-                "cache_hit_rate" => "alerts.cache_hit_rate_threshold",
-                "opus_usage" => "alerts.opus_usage_threshold",
-                "spending_spike_factor" => "alerts.spending_spike_factor",
-                _ => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Invalid threshold type: {}"}}"#, threshold_type);
-                    } else {
-                        eprintln!("Error: Invalid threshold type: {}", threshold_type);
-                    }
-                    std::process::exit(1);
-                }
-            };
-            
-            match config.set_value(config_key, &value.to_string()) {
-                Ok(()) => {
-                    match config.save() {
-                        Ok(()) => {
-                            if json_output {
-                                println!(r#"{{"status": "success", "message": "Threshold '{}' set to {}"}}"#, threshold_type, value);
-                            } else {
-                                println!("Threshold '{}' set to {}", threshold_type, value);
-                            }
-                        }
-                        Err(e) => {
-                            if json_output {
-                                println!(r#"{{"status": "error", "message": "Failed to save config: {}"}}"#, e);
-                            } else {
-                                eprintln!("Error: Failed to save config: {}", e);
-                            }
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Invalid threshold value: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Invalid threshold value: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
-}
 
 fn handle_import_command(action: ImportAction, json_output: bool) {
     use sync::ExportImportManager;
@@ -898,6 +620,40 @@ fn handle_import_command(action: ImportAction, json_output: bool) {
             }
         }
     }
+}
+
+async fn handle_watch_command(
+    project_filter: Option<String>,
+    expensive_threshold: f64,
+    _no_charts: bool,
+    refresh_rate_ms: u64,
+    cli: &Cli,
+) -> anyhow::Result<()> {
+    use watch::WatchMode;
+
+    // Load configuration with CLI overrides
+    let mut config = Config::load()?;
+    
+    // Apply CLI overrides
+    if let Some(ref currency) = cli.currency {
+        config.currency.default_currency = currency.clone();
+    }
+    if let Some(ref timezone) = cli.timezone {
+        config.timezone.timezone = timezone.clone();
+    }
+
+    // Create and start watch mode
+    let mut watch_mode = WatchMode::new(
+        config,
+        project_filter,
+        expensive_threshold,
+        refresh_rate_ms,
+    )?;
+
+    // Start watching
+    watch_mode.run().await?;
+
+    Ok(())
 }
 
 fn handle_usage_command(
@@ -1042,21 +798,23 @@ fn handle_usage_command(
     let mut unique_messages = 0;
 
     for file_path in jsonl_files {
-        // Extract project name from file path
-        let project_name = match parser.extract_project_path(&file_path) {
-            Ok(project_path) => project_path.to_string_lossy().to_string(),
-            Err(_) => "Unknown".to_string(),
-        };
-
-        // Apply project filter early if specified
-        if let Some(ref filter_project) = final_project {
-            if project_name != *filter_project {
-                continue;
-            }
-        }
-
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
+                // Extract smart project name with fallback to directory-based extraction
+                let project_name = parsed_conversation.smart_project_name
+                    .unwrap_or_else(|| {
+                        match parser.extract_project_path(&file_path) {
+                            Ok(project_path) => project_path.to_string_lossy().to_string(),
+                            Err(_) => "Unknown".to_string(),
+                        }
+                    });
+
+                // Apply project filter if specified
+                if let Some(ref filter_project) = final_project {
+                    if project_name != *filter_project {
+                        continue;
+                    }
+                }
                 total_messages += parsed_conversation.messages.len();
                 
                 // Apply deduplication
@@ -1429,14 +1187,16 @@ fn handle_projects_command(
     let mut unique_messages = 0;
 
     for file_path in jsonl_files {
-        // Extract project name from file path
-        let project_name = match parser.extract_project_path(&file_path) {
-            Ok(project_path) => project_path.to_string_lossy().to_string(),
-            Err(_) => "Unknown".to_string(),
-        };
-
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
+                // Extract smart project name with fallback to directory-based extraction
+                let project_name = parsed_conversation.smart_project_name
+                    .unwrap_or_else(|| {
+                        match parser.extract_project_path(&file_path) {
+                            Ok(project_path) => project_path.to_string_lossy().to_string(),
+                            Err(_) => "Unknown".to_string(),
+                        }
+                    });
                 total_messages += parsed_conversation.messages.len();
                 
                 // Apply deduplication
@@ -1766,21 +1526,23 @@ fn handle_daily_usage_command(
     let mut unique_messages = 0;
 
     for file_path in jsonl_files {
-        // Extract project name from file path
-        let project_name = match parser.extract_project_path(&file_path) {
-            Ok(project_path) => project_path.to_string_lossy().to_string(),
-            Err(_) => "Unknown".to_string(),
-        };
-
-        // Apply project filter early if specified
-        if let Some(ref filter_project) = project_filter {
-            if project_name != *filter_project {
-                continue;
-            }
-        }
-
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
+                // Extract smart project name with fallback to directory-based extraction
+                let project_name = parsed_conversation.smart_project_name
+                    .unwrap_or_else(|| {
+                        match parser.extract_project_path(&file_path) {
+                            Ok(project_path) => project_path.to_string_lossy().to_string(),
+                            Err(_) => "Unknown".to_string(),
+                        }
+                    });
+
+                // Apply project filter if specified
+                if let Some(ref filter_project) = project_filter {
+                    if project_name != *filter_project {
+                        continue;
+                    }
+                }
                 total_messages += parsed_conversation.messages.len();
                 
                 // Apply deduplication
@@ -2138,13 +1900,16 @@ fn handle_conversations_command(
     let mut unique_messages = 0;
 
     for file_path in jsonl_files {
-        let project_name = match parser.extract_project_path(&file_path) {
-            Ok(project_path) => project_path.to_string_lossy().to_string(),
-            Err(_) => "Unknown".to_string(),
-        };
-
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
+                // Extract smart project name with fallback to directory-based extraction
+                let project_name = parsed_conversation.smart_project_name
+                    .unwrap_or_else(|| {
+                        match parser.extract_project_path(&file_path) {
+                            Ok(project_path) => project_path.to_string_lossy().to_string(),
+                            Err(_) => "Unknown".to_string(),
+                        }
+                    });
                 total_messages += parsed_conversation.messages.len();
                 
                 match dedup_engine.filter_duplicates(parsed_conversation.messages) {
@@ -2572,21 +2337,23 @@ fn handle_optimize_command(
     let mut unique_messages = 0;
 
     for file_path in jsonl_files {
-        // Extract project name from file path
-        let project_name = match parser.extract_project_path(&file_path) {
-            Ok(project_path) => project_path.to_string_lossy().to_string(),
-            Err(_) => "Unknown".to_string(),
-        };
-
-        // Apply project filter early if specified
-        if let Some(ref filter_project) = project {
-            if project_name != *filter_project {
-                continue;
-            }
-        }
-
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
+                // Extract smart project name with fallback to directory-based extraction
+                let project_name = parsed_conversation.smart_project_name
+                    .unwrap_or_else(|| {
+                        match parser.extract_project_path(&file_path) {
+                            Ok(project_path) => project_path.to_string_lossy().to_string(),
+                            Err(_) => "Unknown".to_string(),
+                        }
+                    });
+
+                // Apply project filter if specified
+                if let Some(ref filter_project) = project {
+                    if project_name != *filter_project {
+                        continue;
+                    }
+                }
                 total_messages += parsed_conversation.messages.len();
                 
                 // Apply deduplication
@@ -2896,7 +2663,8 @@ fn handle_optimize_command(
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     
     // Load configuration
@@ -3019,8 +2787,11 @@ fn main() {
         Commands::Import { action } => {
             handle_import_command(action, cli.json);
         }
-        Commands::Alerts { action } => {
-            handle_alerts_command(action, cli.json);
+        Commands::Watch { ref project, threshold, no_charts, refresh_rate } => {
+            if let Err(e) = handle_watch_command(project.clone(), threshold, no_charts, refresh_rate, &cli).await {
+                eprintln!("Error starting watch mode: {}", e);
+                std::process::exit(1);
+            }
         }
     }
 }
