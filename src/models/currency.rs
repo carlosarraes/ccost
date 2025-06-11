@@ -182,8 +182,8 @@ impl CurrencyConverter {
         let xml_text = response.text().await?;
         
         // Parse the simple XML structure manually (ECB XML is predictable)
-        // Look for currency="XXX" rate="Y.YY" pattern
-        let pattern = format!(r#"currency="{}" rate="([0-9.]+)""#, currency);
+        // Look for currency='XXX' rate='Y.YY' pattern (ECB uses single quotes)
+        let pattern = format!(r#"currency='{}' rate='([0-9.]+)'"#, currency);
         let re = regex::Regex::new(&pattern)
             .context("Failed to create regex")?;
 
@@ -369,5 +369,62 @@ mod tests {
         let currencies = converter.get_supported_currencies().await.unwrap();
         assert!(currencies.contains(&"EUR".to_string()));
         assert!(currencies.contains(&"USD".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_ecb_xml_parsing_with_single_quotes() {
+        let (converter, _temp_dir) = create_test_converter().await;
+        
+        // Mock XML data that matches ECB format with single quotes
+        let xml_data = r#"
+            <Cube currency='USD' rate='1.1429'/>
+            <Cube currency='GBP' rate='0.8567'/>
+            <Cube currency='JPY' rate='144.52'/>
+        "#;
+        
+        // Test USD parsing
+        let pattern = format!(r#"currency='{}' rate='([0-9.]+)'"#, "USD");
+        let re = regex::Regex::new(&pattern).unwrap();
+        
+        let captures = re.captures(xml_data).unwrap();
+        let rate_str = captures.get(1).unwrap().as_str();
+        let rate: f64 = rate_str.parse().unwrap();
+        
+        assert!((rate - 1.1429).abs() < 0.0001);
+    }
+    
+    #[tokio::test]
+    async fn test_regex_fails_with_double_quotes() {
+        // This test ensures we don't regress to double quotes
+        let xml_data = r#"<Cube currency='USD' rate='1.1429'/>"#;
+        
+        // Test that old pattern (double quotes) fails
+        let old_pattern = format!(r#"currency="{}" rate="([0-9.]+)""#, "USD");
+        let old_re = regex::Regex::new(&old_pattern).unwrap();
+        assert!(old_re.captures(xml_data).is_none());
+        
+        // Test that new pattern (single quotes) works
+        let new_pattern = format!(r#"currency='{}' rate='([0-9.]+)'"#, "USD");
+        let new_re = regex::Regex::new(&new_pattern).unwrap();
+        assert!(new_re.captures(xml_data).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_usd_to_eur_conversion_realistic() {
+        let (converter, _temp_dir) = create_test_converter().await;
+        
+        // Cache a realistic USD to EUR rate (EUR base: 1 EUR = 1.1429 USD, so USD to EUR = 1/1.1429 ≈ 0.875)
+        let rate = ExchangeRate {
+            base_currency: "USD".to_string(),
+            target_currency: "EUR".to_string(),
+            rate: 0.875,
+            fetched_at: Utc::now(),
+        };
+        
+        converter.cache_exchange_rate(&rate).await.unwrap();
+        
+        // Test conversion: $100 USD should be approximately €87.50
+        let result = converter.convert_from_usd(100.0, "EUR").await.unwrap();
+        assert!((result - 87.5).abs() < 0.1);
     }
 }
