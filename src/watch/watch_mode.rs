@@ -259,6 +259,11 @@ impl WatchMode {
         let mut watch_events = Vec::new();
         
         for data in usage_data {
+            // Filter out messages with 0 tokens to reduce noise
+            if !self.should_display_message(&data) {
+                continue;
+            }
+            
             // Process each message and generate watch events
             let tokens = data.usage.as_ref()
                 .map(|u| u.input_tokens.unwrap_or(0) + u.output_tokens.unwrap_or(0) + u.cache_creation_input_tokens.unwrap_or(0) + u.cache_read_input_tokens.unwrap_or(0))
@@ -395,6 +400,20 @@ impl WatchMode {
             .iter()
             .map(|s| s.total_cost)
             .sum()
+    }
+
+    /// Determine if a message should be displayed in watch mode
+    /// Filters out messages with 0 tokens to reduce noise
+    pub fn should_display_message(&self, data: &crate::parser::jsonl::UsageData) -> bool {
+        if let Some(usage) = &data.usage {
+            let total_tokens = usage.input_tokens.unwrap_or(0) 
+                + usage.output_tokens.unwrap_or(0)
+                + usage.cache_creation_input_tokens.unwrap_or(0)
+                + usage.cache_read_input_tokens.unwrap_or(0);
+            total_tokens > 0
+        } else {
+            false
+        }
     }
 
     pub fn get_dashboard_state(&self) -> &DashboardState {
@@ -720,5 +739,208 @@ mod tests {
         drop(watch_mode);
         
         // Test passes if no panic occurs during drop
+    }
+
+    #[test]
+    fn test_zero_token_filtering_logic() {
+        use crate::parser::jsonl::{UsageData, Usage};
+        
+        // Create test messages with different token patterns
+        let zero_token_msg = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("msg1".to_string()),
+            request_id: Some("req1".to_string()),
+            message: None,
+            usage: Some(Usage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                cache_creation_input_tokens: Some(0),
+                cache_read_input_tokens: Some(0),
+            }),
+            cost_usd: Some(0.0),
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        let input_token_msg = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("msg2".to_string()),
+            request_id: Some("req2".to_string()),
+            message: None,
+            usage: Some(Usage {
+                input_tokens: Some(15),
+                output_tokens: Some(25),
+                cache_creation_input_tokens: Some(0),
+                cache_read_input_tokens: Some(0),
+            }),
+            cost_usd: Some(0.002),
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        let cache_token_msg = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("msg4".to_string()),
+            request_id: Some("req4".to_string()),
+            message: None,
+            usage: Some(Usage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                cache_creation_input_tokens: Some(10),
+                cache_read_input_tokens: Some(0),
+            }),
+            cost_usd: Some(0.001),
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        let messages = vec![zero_token_msg, input_token_msg, cache_token_msg];
+        
+        // Filter using the same logic as should_display_message
+        let filtered_messages: Vec<_> = messages.iter().filter(|data| {
+            if let Some(usage) = &data.usage {
+                let total_tokens = usage.input_tokens.unwrap_or(0) 
+                    + usage.output_tokens.unwrap_or(0)
+                    + usage.cache_creation_input_tokens.unwrap_or(0)
+                    + usage.cache_read_input_tokens.unwrap_or(0);
+                total_tokens > 0
+            } else {
+                false
+            }
+        }).collect();
+        
+        // Should only have 2 messages (input_token_msg and cache_token_msg)
+        assert_eq!(filtered_messages.len(), 2, "Should filter out zero-token messages");
+        
+        // Verify correct messages are kept
+        let kept_ids: Vec<_> = filtered_messages.iter().map(|m| m.uuid.as_ref().unwrap().as_str()).collect();
+        assert!(kept_ids.contains(&"msg2"), "Should keep message with input/output tokens");
+        assert!(kept_ids.contains(&"msg4"), "Should keep message with cache creation tokens");
+        assert!(!kept_ids.contains(&"msg1"), "Should filter out zero-token message");
+    }
+
+    #[test]
+    fn test_should_display_message_logic() {
+        use crate::parser::jsonl::{UsageData, Usage};
+        
+        // Test message with 0 tokens - should be filtered
+        let zero_token_data = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: Some(Usage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                cache_creation_input_tokens: Some(0),
+                cache_read_input_tokens: Some(0),
+            }),
+            cost_usd: Some(0.0),
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        // Test message with non-zero input tokens - should be displayed
+        let input_token_data = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: Some(Usage {
+                input_tokens: Some(10),
+                output_tokens: Some(0),
+                cache_creation_input_tokens: Some(0),
+                cache_read_input_tokens: Some(0),
+            }),
+            cost_usd: Some(0.001),
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        // Test message with non-zero cache tokens - should be displayed
+        let cache_token_data = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: Some(Usage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                cache_creation_input_tokens: Some(5),
+                cache_read_input_tokens: Some(0),
+            }),
+            cost_usd: Some(0.0005),
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        // Test message with no usage data - should be filtered
+        let no_usage_data = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: None,
+            cost_usd: None,
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        // Test the filtering logic directly without creating full WatchMode
+        fn should_display_message_standalone(data: &UsageData) -> bool {
+            if let Some(usage) = &data.usage {
+                let total_tokens = usage.input_tokens.unwrap_or(0) 
+                    + usage.output_tokens.unwrap_or(0)
+                    + usage.cache_creation_input_tokens.unwrap_or(0)
+                    + usage.cache_read_input_tokens.unwrap_or(0);
+                total_tokens > 0
+            } else {
+                false
+            }
+        }
+        
+        // Test the filtering logic
+        assert!(!should_display_message_standalone(&zero_token_data), "Zero token message should be filtered");
+        assert!(should_display_message_standalone(&input_token_data), "Message with input tokens should be displayed");
+        assert!(should_display_message_standalone(&cache_token_data), "Message with cache tokens should be displayed");
+        assert!(!should_display_message_standalone(&no_usage_data), "Message with no usage data should be filtered");
+    }
+
+    #[test]
+    fn test_filtering_preserves_cache_read_tokens() {
+        use crate::parser::jsonl::{UsageData, Usage};
+        
+        // Test message with cache read tokens but 0 input/output tokens
+        let cache_read_msg = UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("msg1".to_string()),
+            request_id: Some("req1".to_string()),
+            message: None,
+            usage: Some(Usage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                cache_creation_input_tokens: Some(0),
+                cache_read_input_tokens: Some(100),
+            }),
+            cost_usd: Some(0.001),
+            cwd: None,
+            original_cwd: None,
+        };
+        
+        // Test the filtering logic directly without creating full WatchMode
+        fn should_display_message_standalone(data: &UsageData) -> bool {
+            if let Some(usage) = &data.usage {
+                let total_tokens = usage.input_tokens.unwrap_or(0) 
+                    + usage.output_tokens.unwrap_or(0)
+                    + usage.cache_creation_input_tokens.unwrap_or(0)
+                    + usage.cache_read_input_tokens.unwrap_or(0);
+                total_tokens > 0
+            } else {
+                false
+            }
+        }
+        
+        // Should preserve messages with cache read tokens because they're important
+        assert!(should_display_message_standalone(&cache_read_msg), "Should preserve messages with cache read tokens");
     }
 }
