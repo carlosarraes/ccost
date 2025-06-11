@@ -24,8 +24,9 @@ use std::time::{Duration, Instant};
 
 use crate::watch::events::{WatchEvent, EfficiencyLevel};
 use crate::watch::session::{SessionTracker, SessionStatistics};
+use crate::watch::text_selection::TextSelectionHandler;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DashboardState {
     pub events: VecDeque<WatchEvent>,
     pub session_tracker: SessionTracker,
@@ -39,6 +40,7 @@ pub struct DashboardState {
     pub expensive_threshold: f64,
     pub max_events: usize,
     pub max_history: usize,
+    pub text_selection: TextSelectionHandler,
 }
 
 impl Default for DashboardState {
@@ -56,6 +58,7 @@ impl Default for DashboardState {
             expensive_threshold: 0.10,
             max_events: 50, // Reduced to prevent log overflow
             max_history: 60, // Keep 60 data points for sparklines
+            text_selection: TextSelectionHandler::new(),
         }
     }
 }
@@ -66,6 +69,7 @@ impl DashboardState {
             session_tracker: SessionTracker::new(30, expensive_threshold),
             refresh_rate: Duration::from_millis(refresh_rate_ms),
             expensive_threshold,
+            text_selection: TextSelectionHandler::new(),
             ..Default::default()
         }
     }
@@ -112,6 +116,7 @@ impl DashboardState {
         self.message_tokens.clear();
         self.start_time = Instant::now();
         self.last_update = Instant::now();
+        self.text_selection.clear_selection();
     }
 
     pub fn uptime(&self) -> Duration {
@@ -202,22 +207,55 @@ impl Dashboard {
                         self.draw()?;
                     }
 
-                    // Check for keyboard input with a short timeout
+                    // Check for input events (keyboard and mouse) with a short timeout
                     if crossterm::event::poll(Duration::from_millis(10))? {
-                        if let Event::Key(key) = event::read()? {
-                            if key.kind == KeyEventKind::Press {
-                                match key.code {
-                                    KeyCode::Char('q') | KeyCode::Esc => break,
-                                    KeyCode::Char('c') | KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => break,
-                                    KeyCode::Char('p') | KeyCode::Char(' ') => self.state.toggle_pause(),
-                                    KeyCode::Char('h') | KeyCode::F(1) => self.state.toggle_help(),
-                                    KeyCode::Char('r') => {
-                                        self.state.reset();
-                                        let _ = reset_sender.send(()); // Notify watch mode to reset file tracking
-                                    },
-                                    _ => {}
+                        match event::read()? {
+                            Event::Key(key) => {
+                                if key.kind == KeyEventKind::Press {
+                                    match key.code {
+                                        KeyCode::Char('q') => break,
+                                        KeyCode::Char('c') | KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => break,
+                                        KeyCode::Char('p') | KeyCode::Char(' ') => self.state.toggle_pause(),
+                                        KeyCode::Char('h') | KeyCode::F(1) => self.state.toggle_help(),
+                                        KeyCode::Char('r') => {
+                                            self.state.reset();
+                                            let _ = reset_sender.send(()); // Notify watch mode to reset file tracking
+                                        },
+                                        KeyCode::Char('x') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                                            // Ctrl+X to copy selected text
+                                            if let Ok(selected_text) = self.state.text_selection.copy_selected_text(&self.state.events) {
+                                                if !selected_text.is_empty() {
+                                                    // Text was copied to clipboard successfully
+                                                    // Could add a status message here if desired
+                                                }
+                                            }
+                                        },
+                                        KeyCode::Esc => {
+                                            // First check if we have a selection to clear
+                                            if self.state.text_selection.has_selection() {
+                                                self.state.text_selection.clear_selection();
+                                            } else {
+                                                // If no selection, quit the application
+                                                break;
+                                            }
+                                        },
+                                        _ => {}
+                                    }
                                 }
                             }
+                            Event::Mouse(mouse_event) => {
+                                // Handle mouse events for text selection in the recent activity area
+                                // We need to calculate the activity area bounds to pass to the handler
+                                let terminal_size = self.terminal.size()?;
+                                let activity_area = self.calculate_recent_activity_area(terminal_size);
+                                
+                                let _ = self.state.text_selection.handle_mouse_event(
+                                    mouse_event,
+                                    activity_area,
+                                    &self.state.events
+                                );
+                            }
+                            _ => {}
                         }
                     }
 
@@ -436,10 +474,16 @@ impl Dashboard {
 
 
     fn render_status_line(&self, f: &mut Frame, area: Rect) {
-        let status_text = if self.state.paused {
-            "[PAUSED] Press 'p' to resume | 'q' to quit | 'h' for help | 'r' to reset"
+        let selection_text = if self.state.text_selection.has_selection() {
+            " | Ctrl+X to copy"
         } else {
-            "Press 'p' to pause | 'q' to quit | 'h' for help | 'r' to reset"
+            ""
+        };
+        
+        let status_text = if self.state.paused {
+            format!("[PAUSED] Press 'p' to resume | 'q' to quit | 'h' for help | 'r' to reset | Mouse to select{}", selection_text)
+        } else {
+            format!("Press 'p' to pause | 'q' to quit | 'h' for help | 'r' to reset | Mouse to select{}", selection_text)
         };
 
         let status = Paragraph::new(status_text)
@@ -461,6 +505,8 @@ impl Dashboard {
             Line::raw("  r            - Reset all data"),
             Line::raw("  h / F1       - Show/Hide help"),
             Line::raw("  q / Esc      - Quit"),
+            Line::raw("  Mouse        - Select text in Recent Activity"),
+            Line::raw("  Ctrl+X       - Copy selected text to clipboard"),
             Line::raw(""),
             Line::raw("Display:"),
             Line::raw("  Live Metrics     - Real-time cost and token counts"),
@@ -492,6 +538,29 @@ impl Dashboard {
             )
             .wrap(ratatui::widgets::Wrap { trim: true });
         f.render_widget(help, area);
+    }
+
+    fn calculate_recent_activity_area(&self, terminal_size: Rect) -> Rect {
+        // This replicates the layout calculation to determine where the recent activity panel is
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Header
+                Constraint::Min(0),    // Main content
+                Constraint::Length(1), // Status line
+            ])
+            .split(terminal_size);
+
+        // Main content area is chunks[1], now split it to find the recent activity area
+        let main_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(60), // Left side (metrics + sessions)
+                Constraint::Percentage(40), // Right side (recent activity)
+            ])
+            .split(chunks[1]);
+
+        main_chunks[1] // Recent activity area
     }
 }
 
