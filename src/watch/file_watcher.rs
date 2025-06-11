@@ -8,7 +8,6 @@ use crate::watch::events::FileEvent;
 
 pub struct FileWatcher {
     _watcher: RecommendedWatcher,
-    file_receiver: mpsc::Receiver<notify::Result<Event>>,
     event_sender: tokio_mpsc::UnboundedSender<FileEvent>,
 }
 
@@ -16,7 +15,7 @@ impl FileWatcher {
     pub fn new(
         projects_dir: PathBuf,
         event_sender: tokio_mpsc::UnboundedSender<FileEvent>,
-    ) -> Result<Self> {
+    ) -> Result<(Self, mpsc::Receiver<notify::Result<Event>>)> {
         let (tx, file_receiver) = mpsc::channel();
         
         let mut watcher = RecommendedWatcher::new(
@@ -32,17 +31,18 @@ impl FileWatcher {
         watcher.watch(&projects_dir, RecursiveMode::Recursive)
             .context("Failed to watch projects directory")?;
 
-        Ok(FileWatcher {
+        let file_watcher = FileWatcher {
             _watcher: watcher,
-            file_receiver,
             event_sender,
-        })
+        };
+
+        Ok((file_watcher, file_receiver))
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run_with_receiver(&self, file_receiver: mpsc::Receiver<notify::Result<Event>>) -> Result<()> {
         loop {
             // Use try_recv to avoid blocking and check for events periodically
-            match self.file_receiver.try_recv() {
+            match file_receiver.try_recv() {
                 Ok(Ok(event)) => {
                     self.handle_file_event(event).await?;
                 }
@@ -103,8 +103,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let (tx, _rx) = tokio_mpsc::unbounded_channel();
         
-        let watcher = FileWatcher::new(temp_dir.path().to_path_buf(), tx);
-        assert!(watcher.is_ok());
+        let result = FileWatcher::new(temp_dir.path().to_path_buf(), tx);
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
@@ -112,11 +112,11 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let (tx, mut rx) = tokio_mpsc::unbounded_channel();
         
-        let mut watcher = FileWatcher::new(temp_dir.path().to_path_buf(), tx).unwrap();
+        let (watcher, file_receiver) = FileWatcher::new(temp_dir.path().to_path_buf(), tx).unwrap();
         
         // Start watcher in background
         let watcher_handle = tokio::spawn(async move {
-            let _ = watcher.run().await;
+            let _ = watcher.run_with_receiver(file_receiver).await;
         });
         
         // Create a JSONL file
@@ -145,7 +145,7 @@ mod tests {
     fn test_is_jsonl_file() {
         let temp_dir = TempDir::new().unwrap();
         let (tx, _rx) = tokio_mpsc::unbounded_channel();
-        let watcher = FileWatcher::new(temp_dir.path().to_path_buf(), tx).unwrap();
+        let (watcher, _file_receiver) = FileWatcher::new(temp_dir.path().to_path_buf(), tx).unwrap();
         
         assert!(watcher.is_jsonl_file(Path::new("test.jsonl")));
         assert!(watcher.is_jsonl_file(Path::new("test.JSONL")));
