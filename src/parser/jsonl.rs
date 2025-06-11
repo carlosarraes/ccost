@@ -274,6 +274,30 @@ impl JsonlParser {
         path.file_name()?.to_str().map(|s| s.to_string())
     }
 
+    /// Unified project name extraction for consistency across all commands
+    /// This is the single source of truth for project names in the application
+    pub fn get_unified_project_name(&self, file_path: &Path, messages: &[UsageData]) -> String {
+        // Priority 1: Try to extract smart name from cwd/originalCwd in messages
+        for message in messages {
+            if let Some(ref cwd) = message.cwd {
+                if let Some(project_name) = self.extract_project_name_from_path(cwd) {
+                    return project_name;
+                }
+            }
+            if let Some(ref original_cwd) = message.original_cwd {
+                if let Some(project_name) = self.extract_project_name_from_path(original_cwd) {
+                    return project_name;
+                }
+            }
+        }
+        
+        // Priority 2: Fallback to directory-based extraction
+        match self.extract_project_path(file_path) {
+            Ok(project_path) => project_path.to_string_lossy().to_string(),
+            Err(_) => "Unknown".to_string(),
+        }
+    }
+
     /// Find all JSONL files in the projects directory
     pub fn find_jsonl_files(&self) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
@@ -771,5 +795,106 @@ mod tests {
         
         // Should preserve string content as-is
         assert_eq!(message.content, Some("Simple string content".to_string()));
+    }
+
+    #[test]
+    fn test_unified_project_name_extraction() {
+        let parser = JsonlParser::new(PathBuf::from("/home/user/.claude/projects"));
+        
+        // Test case 1: Smart name from cwd field
+        let usage_data = vec![UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: None,
+            cost_usd: None,
+            cwd: Some("/home/user/projs/transcribr".to_string()),
+            original_cwd: None,
+        }];
+        
+        let file_path = PathBuf::from("/home/user/.claude/projects/-home-user-projs-transcribr/conversation.jsonl");
+        let project_name = parser.get_unified_project_name(&file_path, &usage_data);
+        assert_eq!(project_name, "transcribr"); // Smart name from cwd, not directory
+        
+        // Test case 2: Smart name from originalCwd field
+        let usage_data2 = vec![UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: None,
+            cost_usd: None,
+            cwd: None,
+            original_cwd: Some("/home/user/.claude".to_string()),
+        }];
+        
+        let file_path2 = PathBuf::from("/home/user/.claude/projects/-home-user--claude/conversation.jsonl");
+        let project_name2 = parser.get_unified_project_name(&file_path2, &usage_data2);
+        assert_eq!(project_name2, ".claude"); // Smart name from originalCwd
+        
+        // Test case 3: Fallback to directory extraction when no cwd available
+        let usage_data3 = vec![UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: None,
+            cost_usd: None,
+            cwd: None,
+            original_cwd: None,
+        }];
+        
+        let file_path3 = PathBuf::from("/home/user/.claude/projects/simple-project/conversation.jsonl");
+        let project_name3 = parser.get_unified_project_name(&file_path3, &usage_data3);
+        assert_eq!(project_name3, "simple-project"); // Directory-based fallback
+        
+        // Test case 4: .config special case handling
+        let usage_data4 = vec![UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: None,
+            cost_usd: None,
+            cwd: Some("/home/user/.config/nvim".to_string()),
+            original_cwd: None,
+        }];
+        
+        let file_path4 = PathBuf::from("/home/user/.claude/projects/-home-user--config-nvim/conversation.jsonl");
+        let project_name4 = parser.get_unified_project_name(&file_path4, &usage_data4);
+        assert_eq!(project_name4, "nvim"); // Special .config handling
+    }
+
+    #[test]
+    fn test_consistency_across_commands() {
+        // This test ensures that all commands use the same unified project name extraction
+        let parser = JsonlParser::new(PathBuf::from("/home/user/.claude/projects"));
+        
+        // Test scenario: Directory name is verbose but cwd provides clean name
+        let messages = vec![UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: None,
+            cost_usd: None,
+            cwd: Some("/home/user/moneyz/transcribr".to_string()),
+            original_cwd: None,
+        }];
+        
+        // Test file with verbose directory name
+        let file_path = PathBuf::from("/home/user/.claude/projects/-home-user-moneyz-transcribr/conversation.jsonl");
+        
+        // All functions that use project names should return the same result
+        let unified_name = parser.get_unified_project_name(&file_path, &messages);
+        
+        // This should be the smart name from cwd, not the directory name
+        assert_eq!(unified_name, "transcribr");
+        
+        // Verify fallback behavior when no cwd is available
+        let empty_messages = vec![];
+        let fallback_name = parser.get_unified_project_name(&file_path, &empty_messages);
+        assert_eq!(fallback_name, "-home-user-moneyz-transcribr"); // Directory-based fallback
     }
 }

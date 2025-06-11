@@ -211,9 +211,8 @@ impl WatchMode {
         // Parse the file and look for new messages
         let parsed_conversation = self.parser.parse_file_with_verbose(&file_path, false)?;
         
-        // Extract smart project name from cwd/originalCwd, fallback to directory extraction
-        let project = parsed_conversation.smart_project_name
-            .unwrap_or_else(|| self.extract_project_name(&file_path).unwrap_or_else(|_| "unknown".to_string()));
+        // Use unified project name extraction for consistency
+        let project = self.parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
         
         // Apply project filter if specified
         if let Some(ref filter) = self.project_filter {
@@ -330,28 +329,6 @@ impl WatchMode {
         Ok(watch_events)
     }
 
-    fn extract_project_name(&self, file_path: &PathBuf) -> Result<String> {
-        // Extract project name from path like ~/.claude/projects/PROJECT_NAME/file.jsonl
-        let path_str = file_path.to_string_lossy();
-        
-        if let Some(projects_pos) = path_str.find("/projects/") {
-            let after_projects = &path_str[projects_pos + 10..]; // "/projects/".len() = 10
-            if let Some(slash_pos) = after_projects.find('/') {
-                let project_name = &after_projects[..slash_pos];
-                Ok(project_name.to_string())
-            } else {
-                // File is directly in projects directory
-                Ok(after_projects.to_string())
-            }
-        } else {
-            // Fallback: use parent directory name
-            file_path.parent()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| anyhow::anyhow!("Could not extract project name from path: {}", path_str))
-        }
-    }
 
     pub fn set_project_filter(&mut self, project: Option<String>) {
         self.project_filter = project;
@@ -412,19 +389,33 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_project_name() {
-        let temp_dir = TempDir::new().unwrap();
-        let mut config = Config::default();
-        config.general.claude_projects_path = temp_dir.path().join("projects").to_string_lossy().to_string();
-        let watch_mode = WatchMode::new(config, None, 0.10, 200).unwrap();
+    fn test_unified_project_name_extraction() {
+        use crate::parser::jsonl::JsonlParser;
         
+        // Test the unified project name extraction directly through parser
+        let parser = JsonlParser::new(PathBuf::from("/home/user/.claude/projects"));
+        
+        // Test directory-based extraction (fallback)
         let path = PathBuf::from("/home/user/.claude/projects/my-project/conversation.jsonl");
-        let project = watch_mode.extract_project_name(&path).unwrap();
+        let empty_messages = vec![];
+        let project = parser.get_unified_project_name(&path, &empty_messages);
         assert_eq!(project, "my-project");
         
-        let path2 = PathBuf::from("/home/user/.claude/projects/another-project-name/subdir/file.jsonl");
-        let project2 = watch_mode.extract_project_name(&path2).unwrap();
-        assert_eq!(project2, "another-project-name");
+        // Test smart name extraction from cwd field
+        let messages_with_cwd = vec![crate::parser::jsonl::UsageData {
+            timestamp: Some("2025-06-09T10:30:00Z".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            request_id: Some("req-1".to_string()),
+            message: None,
+            usage: None,
+            cost_usd: None,
+            cwd: Some("/home/user/real-project".to_string()),
+            original_cwd: None,
+        }];
+        
+        let path2 = PathBuf::from("/home/user/.claude/projects/-home-user-dir-name/conversation.jsonl");
+        let project2 = parser.get_unified_project_name(&path2, &messages_with_cwd);
+        assert_eq!(project2, "real-project"); // Should use smart name from cwd, not directory
     }
 
     #[tokio::test]

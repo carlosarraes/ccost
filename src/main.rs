@@ -800,14 +800,8 @@ fn handle_usage_command(
     for file_path in jsonl_files {
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
-                // Extract smart project name with fallback to directory-based extraction
-                let project_name = parsed_conversation.smart_project_name
-                    .unwrap_or_else(|| {
-                        match parser.extract_project_path(&file_path) {
-                            Ok(project_path) => project_path.to_string_lossy().to_string(),
-                            Err(_) => "Unknown".to_string(),
-                        }
-                    });
+                // Use unified project name extraction for consistency
+                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = final_project {
@@ -1189,14 +1183,8 @@ fn handle_projects_command(
     for file_path in jsonl_files {
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
-                // Extract smart project name with fallback to directory-based extraction
-                let project_name = parsed_conversation.smart_project_name
-                    .unwrap_or_else(|| {
-                        match parser.extract_project_path(&file_path) {
-                            Ok(project_path) => project_path.to_string_lossy().to_string(),
-                            Err(_) => "Unknown".to_string(),
-                        }
-                    });
+                // Use unified project name extraction for consistency
+                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
                 total_messages += parsed_conversation.messages.len();
                 
                 // Apply deduplication
@@ -1528,14 +1516,8 @@ fn handle_daily_usage_command(
     for file_path in jsonl_files {
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
-                // Extract smart project name with fallback to directory-based extraction
-                let project_name = parsed_conversation.smart_project_name
-                    .unwrap_or_else(|| {
-                        match parser.extract_project_path(&file_path) {
-                            Ok(project_path) => project_path.to_string_lossy().to_string(),
-                            Err(_) => "Unknown".to_string(),
-                        }
-                    });
+                // Use unified project name extraction for consistency
+                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = project_filter {
@@ -1902,14 +1884,8 @@ fn handle_conversations_command(
     for file_path in jsonl_files {
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
-                // Extract smart project name with fallback to directory-based extraction
-                let project_name = parsed_conversation.smart_project_name
-                    .unwrap_or_else(|| {
-                        match parser.extract_project_path(&file_path) {
-                            Ok(project_path) => project_path.to_string_lossy().to_string(),
-                            Err(_) => "Unknown".to_string(),
-                        }
-                    });
+                // Use unified project name extraction for consistency
+                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
                 total_messages += parsed_conversation.messages.len();
                 
                 match dedup_engine.filter_duplicates(parsed_conversation.messages) {
@@ -2339,14 +2315,8 @@ fn handle_optimize_command(
     for file_path in jsonl_files {
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
-                // Extract smart project name with fallback to directory-based extraction
-                let project_name = parsed_conversation.smart_project_name
-                    .unwrap_or_else(|| {
-                        match parser.extract_project_path(&file_path) {
-                            Ok(project_path) => project_path.to_string_lossy().to_string(),
-                            Err(_) => "Unknown".to_string(),
-                        }
-                    });
+                // Use unified project name extraction for consistency
+                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = project {

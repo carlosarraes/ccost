@@ -813,7 +813,6 @@ mod tests {
         let state = DashboardState::new(0.20, 500);
         assert_eq!(state.expensive_threshold, 0.20);
         assert_eq!(state.refresh_rate, Duration::from_millis(500));
-        assert_eq!(state.current_tab, 0);
         assert!(!state.paused);
     }
 
@@ -830,7 +829,7 @@ mod tests {
 
         state.add_event(event);
         assert_eq!(state.events.len(), 1);
-        assert_eq!(state.cost_history.len(), 1);
+        assert_eq!(state.message_costs.len(), 1);
     }
 
     #[test]
