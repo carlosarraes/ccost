@@ -11,7 +11,6 @@ pub struct Config {
     pub output: OutputConfig,
     pub timezone: TimezoneConfig,
     pub cache: CacheConfig,
-    pub sync: SyncConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,11 +48,6 @@ pub struct CacheConfig {
     pub ttl_hours: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncConfig {
-    pub auto_export: bool,
-    pub export_format: String, // "json" or "csv"
-}
 
 impl Default for Config {
     fn default() -> Self {
@@ -80,10 +74,6 @@ impl Default for Config {
             },
             cache: CacheConfig {
                 ttl_hours: 24,
-            },
-            sync: SyncConfig {
-                auto_export: false,
-                export_format: "json".to_string(),
             },
         }
     }
@@ -244,22 +234,6 @@ impl Config {
         output.push_str(&format!("ttl_hours = {}\n", self.cache.ttl_hours));
         output.push_str("\n");
         
-        // Sync settings
-        output.push_str("# =============================================================================\n");
-        output.push_str("# SYNC SETTINGS\n");
-        output.push_str("# =============================================================================\n");
-        output.push_str("\n");
-        output.push_str("[sync]\n");
-        output.push_str("# Whether to automatically export data after processing\n");
-        output.push_str("# true  - Automatically create export files after commands\n");
-        output.push_str("# false - Only export when explicitly requested (default)\n");
-        output.push_str(&format!("auto_export = {}\n", self.sync.auto_export));
-        output.push_str("\n");
-        output.push_str("# Default format for export operations\n");
-        output.push_str("#   \"json\" - Export to JSON format (recommended for data interchange)\n");
-        output.push_str("#   \"csv\"  - Export to CSV format (good for spreadsheets)\n");
-        output.push_str(&format!("export_format = \"{}\"\n", self.sync.export_format));
-        output.push_str("\n");
         
         // Final notes
         output.push_str("# =============================================================================\n");
@@ -337,16 +311,6 @@ impl Config {
             "cache.ttl_hours" => {
                 self.cache.ttl_hours = value.parse()
                     .with_context(|| format!("Invalid TTL value: {}", value))?;
-            }
-            "sync.auto_export" => {
-                self.sync.auto_export = value.parse()
-                    .with_context(|| format!("Invalid boolean value: {}", value))?;
-            }
-            "sync.export_format" => {
-                if !["json", "csv"].contains(&value) {
-                    anyhow::bail!("Invalid export format: {}. Must be 'json' or 'csv'", value);
-                }
-                self.sync.export_format = value.to_string();
             }
             _ => anyhow::bail!("Unknown configuration key: {}", key),
         }

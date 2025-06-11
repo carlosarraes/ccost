@@ -190,6 +190,51 @@ impl Database {
 
         Ok(rows_affected)
     }
+
+    // Export methods for sync functionality
+    pub fn list_processed_messages(&self) -> Result<Vec<(String, String, Option<String>, String)>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT message_hash, project_name, session_id, processed_at FROM processed_messages ORDER BY processed_at"
+        ).context("Failed to prepare processed messages query")?;
+
+        let message_iter = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,    // message_hash
+                row.get::<_, String>(1)?,    // project_name
+                row.get::<_, Option<String>>(2)?, // session_id
+                row.get::<_, String>(3)?,    // processed_at
+            ))
+        }).context("Failed to execute processed messages query")?;
+
+        let mut results = Vec::new();
+        for message in message_iter {
+            results.push(message.context("Failed to parse processed message row")?);
+        }
+
+        Ok(results)
+    }
+
+    pub fn list_exchange_rates(&self) -> Result<Vec<(String, String, f64, String)>> {
+        let mut stmt = self.connection.prepare(
+            "SELECT base_currency, target_currency, rate, fetched_at FROM exchange_rates ORDER BY base_currency, target_currency"
+        ).context("Failed to prepare exchange rates query")?;
+
+        let rate_iter = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,    // base_currency
+                row.get::<_, String>(1)?,    // target_currency
+                row.get::<_, f64>(2)?,       // rate
+                row.get::<_, String>(3)?,    // fetched_at
+            ))
+        }).context("Failed to execute exchange rates query")?;
+
+        let mut results = Vec::new();
+        for rate in rate_iter {
+            results.push(rate.context("Failed to parse exchange rate row")?);
+        }
+
+        Ok(results)
+    }
 }
 
 #[cfg(test)]

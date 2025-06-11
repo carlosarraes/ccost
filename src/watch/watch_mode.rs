@@ -254,7 +254,7 @@ impl WatchMode {
         }
         
         // CRITICAL FIX: Apply deduplication engine to match usage command behavior
-        let usage_data = self.dedup_engine.filter_duplicates(parsed_conversation.messages)?;
+        let usage_data = self.dedup_engine.filter_duplicates(parsed_conversation.messages, &project)?;
         
         let mut watch_events = Vec::new();
         

@@ -1,26 +1,30 @@
 // ccost: Claude Cost Tracking Tool
+//
+use analysis::{
+    ConversationAnalyzer, ConversationFilter, ConversationInsight, ConversationInsightList,
+    ConversationSortBy, CostCalculationMode, OptimizationEngine, ProjectAnalyzer, ProjectSortBy,
+    UsageFilter, UsageTracker,
+};
+use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use clap::{Parser, Subcommand};
-use chrono::{DateTime, Utc, NaiveDate, TimeZone, Datelike};
-use std::path::PathBuf;
-use std::collections::HashMap;
-use serde::Serialize;
 use config::Config;
 use models::PricingManager;
 use models::currency::CurrencyConverter;
-use storage::Database;
-use parser::jsonl::JsonlParser;
-use parser::deduplication::DeduplicationEngine;
-use analysis::{UsageTracker, UsageFilter, CostCalculationMode, ProjectAnalyzer, ProjectSortBy, OptimizationEngine, ConversationAnalyzer, ConversationFilter, ConversationSortBy, ConversationInsightList, ConversationInsight};
 use output::OutputFormat;
+use parser::deduplication::DeduplicationEngine;
+use parser::jsonl::JsonlParser;
+use serde::Serialize;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use storage::Database;
 
 // Module declarations
+mod analysis;
 mod config;
+mod models;
+mod output;
 mod parser;
 mod storage;
-mod models;
-mod analysis;
-mod output;
-mod sync;
 mod watch;
 
 // Helper structure to associate usage data with project name
@@ -38,27 +42,27 @@ struct Cli {
     /// Custom config file path
     #[arg(long, global = true)]
     config: Option<String>,
-    
+
     /// Override currency (EUR, GBP, JPY, etc.)
     #[arg(long, global = true)]
     currency: Option<String>,
-    
+
     /// Override timezone
     #[arg(long, global = true)]
     timezone: Option<String>,
-    
+
     /// Verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
-    
+
     /// JSON output format
     #[arg(long, global = true)]
     json: bool,
-    
+
     /// Enable colorized table output
     #[arg(long, global = true)]
     colored: bool,
-    
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -70,7 +74,7 @@ enum UsageTimeframe {
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
@@ -80,7 +84,7 @@ enum UsageTimeframe {
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
@@ -91,7 +95,7 @@ enum UsageTimeframe {
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
@@ -102,7 +106,7 @@ enum UsageTimeframe {
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
@@ -112,11 +116,11 @@ enum UsageTimeframe {
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
-        
+
         /// Number of days to show (default: 7)
         #[arg(long, default_value = "7")]
         days: u32,
@@ -147,8 +151,6 @@ enum ConversationSort {
     StartTime,
 }
 
-
-
 #[derive(Subcommand)]
 enum ConfigAction {
     /// Show current configuration
@@ -164,57 +166,25 @@ enum ConfigAction {
     },
 }
 
-
-#[derive(Subcommand)]
-enum ExportFormat {
-    /// Export to JSON format
-    Json {
-        /// Output file path
-        #[arg(short, long)]
-        output: String,
-    },
-    /// Export to CSV format (multiple files)
-    Csv {
-        /// Output directory path
-        #[arg(short, long)]
-        output: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum ImportAction {
-    /// Import from JSON file
-    Json {
-        /// Input file path
-        #[arg(short, long)]
-        input: String,
-        
-        /// Merge with existing data (default: replace)
-        #[arg(long)]
-        merge: bool,
-    },
-}
-
-
 #[derive(Subcommand)]
 enum Commands {
     /// Show usage analysis
     Usage {
         #[command(subcommand)]
         timeframe: Option<UsageTimeframe>,
-        
+
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Start date (YYYY-MM-DD)
         #[arg(long)]
         since: Option<String>,
-        
+
         /// End date (YYYY-MM-DD)
         #[arg(long)]
         until: Option<String>,
-        
+
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
@@ -228,43 +198,43 @@ enum Commands {
     Conversations {
         #[command(subcommand)]
         sort_by: Option<ConversationSort>,
-        
+
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Start date (YYYY-MM-DD)
         #[arg(long)]
         since: Option<String>,
-        
+
         /// End date (YYYY-MM-DD)
         #[arg(long)]
         until: Option<String>,
-        
+
         /// Filter by model
         #[arg(long)]
         model: Option<String>,
-        
+
         /// Minimum cost threshold
         #[arg(long)]
         min_cost: Option<f64>,
-        
+
         /// Maximum cost threshold
         #[arg(long)]
         max_cost: Option<f64>,
-        
+
         /// Show only conversations with outliers/issues
         #[arg(long)]
         outliers_only: bool,
-        
+
         /// Minimum efficiency score (0-100)
         #[arg(long)]
         min_efficiency: Option<f32>,
-        
+
         /// Maximum efficiency score (0-100)
         #[arg(long)]
         max_efficiency: Option<f32>,
-        
+
         /// Export to file (json or csv)
         #[arg(long)]
         export: Option<String>,
@@ -274,31 +244,31 @@ enum Commands {
         /// Filter by project name
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Start date (YYYY-MM-DD)
         #[arg(long)]
         since: Option<String>,
-        
+
         /// End date (YYYY-MM-DD)
         #[arg(long)]
         until: Option<String>,
-        
+
         /// Show only potential savings (no detailed recommendations)
         #[arg(long)]
         potential_savings: bool,
-        
+
         /// Export format for recommendations
         #[arg(long)]
         export: Option<String>,
-        
+
         /// Minimum confidence threshold (0.0-1.0)
         #[arg(long)]
         confidence_threshold: Option<f32>,
-        
+
         /// Filter recommendations from this model
         #[arg(long)]
         model_from: Option<String>,
-        
+
         /// Filter recommendations to this model
         #[arg(long)]
         model_to: Option<String>,
@@ -308,147 +278,145 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Export usage data
-    Export {
-        #[command(subcommand)]
-        format: ExportFormat,
-    },
-    /// Import usage data
-    Import {
-        #[command(subcommand)]
-        action: ImportAction,
-    },
     /// Real-time usage monitoring
     Watch {
         /// Filter by specific project
         #[arg(long)]
         project: Option<String>,
-        
+
         /// Expensive conversation threshold in USD
         #[arg(long, default_value = "0.10")]
         threshold: f64,
-        
+
         /// Disable charts and sparklines
         #[arg(long)]
         no_charts: bool,
-        
+
         /// Refresh rate in milliseconds
         #[arg(long, default_value = "200")]
         refresh_rate: u64,
     },
 }
 
-
 fn handle_config_action(action: ConfigAction, json_output: bool) {
     match action {
-        ConfigAction::Init => {
-            match Config::default().save() {
-                Ok(()) => {
-                    if json_output {
-                        println!(r#"{{"status": "success", "message": "Configuration initialized successfully"}}"#);
+        ConfigAction::Init => match Config::default().save() {
+            Ok(()) => {
+                if json_output {
+                    println!(
+                        r#"{{"status": "success", "message": "Configuration initialized successfully"}}"#
+                    );
+                } else {
+                    if let Ok(config_path) = Config::default_path() {
+                        println!("Configuration initialized at: {}", config_path.display());
                     } else {
-                        if let Ok(config_path) = Config::default_path() {
-                            println!("Configuration initialized at: {}", config_path.display());
-                        } else {
-                            println!("Configuration initialized successfully");
-                        }
+                        println!("Configuration initialized successfully");
                     }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to initialize config: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to initialize config: {}", e);
-                    }
-                    std::process::exit(1);
                 }
             }
-        }
-        ConfigAction::Show => {
-            match Config::load() {
-                Ok(config) => {
-                    if json_output {
-                        match serde_json::to_string_pretty(&config) {
-                            Ok(json) => println!("{}", json),
-                            Err(e) => {
-                                eprintln!("Error: Failed to serialize config to JSON: {}", e);
-                                std::process::exit(1);
-                            }
-                        }
-                    } else {
-                        match toml::to_string_pretty(&config) {
-                            Ok(toml_str) => {
-                                if let Ok(config_path) = Config::default_path() {
-                                    println!("Configuration ({})", config_path.display());
-                                    println!("{}", toml_str);
-                                } else {
-                                    println!("Configuration:");
-                                    println!("{}", toml_str);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Error: Failed to serialize config: {}", e);
-                                std::process::exit(1);
-                            }
-                        }
-                    }
+            Err(e) => {
+                if json_output {
+                    println!(
+                        r#"{{"status": "error", "message": "Failed to initialize config: {}"}}"#,
+                        e
+                    );
+                } else {
+                    eprintln!("Error: Failed to initialize config: {}", e);
                 }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to load config: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to load config: {}", e);
-                    }
-                    std::process::exit(1);
-                }
+                std::process::exit(1);
             }
-        }
-        ConfigAction::Set { key, value } => {
-            match Config::load() {
-                Ok(mut config) => {
-                    match config.set_value(&key, &value) {
-                        Ok(()) => {
-                            match config.save() {
-                                Ok(()) => {
-                                    if json_output {
-                                        println!(r#"{{"status": "success", "message": "Configuration updated: {} = {}"}}"#, key, value);
-                                    } else {
-                                        println!("Configuration updated: {} = {}", key, value);
-                                    }
-                                }
-                                Err(e) => {
-                                    if json_output {
-                                        println!(r#"{{"status": "error", "message": "Failed to save config: {}"}}"#, e);
-                                    } else {
-                                        eprintln!("Error: Failed to save config: {}", e);
-                                    }
-                                    std::process::exit(1);
-                                }
+        },
+        ConfigAction::Show => match Config::load() {
+            Ok(config) => {
+                if json_output {
+                    match serde_json::to_string_pretty(&config) {
+                        Ok(json) => println!("{}", json),
+                        Err(e) => {
+                            eprintln!("Error: Failed to serialize config to JSON: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    match toml::to_string_pretty(&config) {
+                        Ok(toml_str) => {
+                            if let Ok(config_path) = Config::default_path() {
+                                println!("Configuration ({})", config_path.display());
+                                println!("{}", toml_str);
+                            } else {
+                                println!("Configuration:");
+                                println!("{}", toml_str);
                             }
                         }
                         Err(e) => {
-                            if json_output {
-                                println!(r#"{{"status": "error", "message": "Invalid configuration: {}"}}"#, e);
-                            } else {
-                                eprintln!("Error: Invalid configuration: {}", e);
-                            }
+                            eprintln!("Error: Failed to serialize config: {}", e);
                             std::process::exit(1);
                         }
                     }
                 }
+            }
+            Err(e) => {
+                if json_output {
+                    println!(
+                        r#"{{"status": "error", "message": "Failed to load config: {}"}}"#,
+                        e
+                    );
+                } else {
+                    eprintln!("Error: Failed to load config: {}", e);
+                }
+                std::process::exit(1);
+            }
+        },
+        ConfigAction::Set { key, value } => match Config::load() {
+            Ok(mut config) => match config.set_value(&key, &value) {
+                Ok(()) => match config.save() {
+                    Ok(()) => {
+                        if json_output {
+                            println!(
+                                r#"{{"status": "success", "message": "Configuration updated: {} = {}"}}"#,
+                                key, value
+                            );
+                        } else {
+                            println!("Configuration updated: {} = {}", key, value);
+                        }
+                    }
+                    Err(e) => {
+                        if json_output {
+                            println!(
+                                r#"{{"status": "error", "message": "Failed to save config: {}"}}"#,
+                                e
+                            );
+                        } else {
+                            eprintln!("Error: Failed to save config: {}", e);
+                        }
+                        std::process::exit(1);
+                    }
+                },
                 Err(e) => {
                     if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to load config: {}"}}"#, e);
+                        println!(
+                            r#"{{"status": "error", "message": "Invalid configuration: {}"}}"#,
+                            e
+                        );
                     } else {
-                        eprintln!("Error: Failed to load config: {}", e);
+                        eprintln!("Error: Invalid configuration: {}", e);
                     }
                     std::process::exit(1);
                 }
+            },
+            Err(e) => {
+                if json_output {
+                    println!(
+                        r#"{{"status": "error", "message": "Failed to load config: {}"}}"#,
+                        e
+                    );
+                } else {
+                    eprintln!("Error: Failed to load config: {}", e);
+                }
+                std::process::exit(1);
             }
-        }
+        },
     }
 }
-
 
 fn get_database() -> anyhow::Result<Database> {
     let db_path = dirs::config_dir()
@@ -456,170 +424,6 @@ fn get_database() -> anyhow::Result<Database> {
         .join("ccost")
         .join("cache.db");
     Database::new(&db_path)
-}
-
-fn handle_export_command(format: ExportFormat, json_output: bool) {
-    use sync::ExportImportManager;
-    use std::path::Path;
-
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
-
-    let manager = ExportImportManager::new(database);
-
-    match format {
-        ExportFormat::Json { output } => {
-            match manager.export_to_json(Path::new(&output)) {
-                Ok(export_data) => {
-                    if json_output {
-                        let result = serde_json::json!({
-                            "status": "success", 
-                            "message": format!("Exported {} model pricing entries, {} processed messages, {} exchange rates", 
-                                export_data.model_pricing.len(),
-                                export_data.processed_messages.len(),
-                                export_data.exchange_rates.len()),
-                            "output_file": output,
-                            "exported_at": export_data.exported_at
-                        });
-                        match serde_json::to_string_pretty(&result) {
-                            Ok(json) => println!("{}", json),
-                            Err(e) => {
-                                println!(r#"{{"status": "error", "message": "Failed to serialize export result: {}"}}"#, e);
-                                std::process::exit(1);
-                            }
-                        }
-                    } else {
-                        println!("Successfully exported data to: {}", output);
-                        println!("  Model pricing entries: {}", export_data.model_pricing.len());
-                        println!("  Processed messages: {}", export_data.processed_messages.len());
-                        println!("  Exchange rates: {}", export_data.exchange_rates.len());
-                        println!("  Exported at: {}", export_data.exported_at.format("%Y-%m-%d %H:%M:%S UTC"));
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to export data: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to export data: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        }
-        ExportFormat::Csv { output } => {
-            match manager.export_to_csv(Path::new(&output)) {
-                Ok(()) => {
-                    if json_output {
-                        let result = serde_json::json!({
-                            "status": "success",
-                            "message": "Successfully exported data to CSV files",
-                            "output_directory": output
-                        });
-                        match serde_json::to_string_pretty(&result) {
-                            Ok(json) => println!("{}", json),
-                            Err(e) => {
-                                println!(r#"{{"status": "error", "message": "Failed to serialize export result: {}"}}"#, e);
-                                std::process::exit(1);
-                            }
-                        }
-                    } else {
-                        println!("Successfully exported data to CSV files in: {}", output);
-                        println!("  - processed_messages.csv");
-                        println!("  - model_pricing.csv");
-                        println!("  - exchange_rates.csv");
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to export CSV data: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to export CSV data: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
-}
-
-
-fn handle_import_command(action: ImportAction, json_output: bool) {
-    use sync::ExportImportManager;
-    use std::path::Path;
-
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
-
-    let manager = ExportImportManager::new(database);
-
-    match action {
-        ImportAction::Json { input, merge } => {
-            match manager.import_from_json(Path::new(&input), merge) {
-                Ok(import_result) => {
-                    if json_output {
-                        let result = serde_json::json!({
-                            "status": "success",
-                            "message": format!("Successfully imported data from {}", input),
-                            "import_result": {
-                                "processed_messages_imported": import_result.processed_messages_imported,
-                                "model_pricing_imported": import_result.model_pricing_imported,
-                                "exchange_rates_imported": import_result.exchange_rates_imported,
-                                "conflicts_resolved": import_result.conflicts_resolved,
-                                "errors": import_result.errors
-                            }
-                        });
-                        match serde_json::to_string_pretty(&result) {
-                            Ok(json) => println!("{}", json),
-                            Err(e) => {
-                                println!(r#"{{"status": "error", "message": "Failed to serialize import result: {}"}}"#, e);
-                                std::process::exit(1);
-                            }
-                        }
-                    } else {
-                        println!("Successfully imported data from: {}", input);
-                        println!("  Processed messages imported: {}", import_result.processed_messages_imported);
-                        println!("  Model pricing entries imported: {}", import_result.model_pricing_imported);
-                        println!("  Exchange rates imported: {}", import_result.exchange_rates_imported);
-                        if import_result.conflicts_resolved > 0 {
-                            println!("  Conflicts resolved: {}", import_result.conflicts_resolved);
-                        }
-                        if !import_result.errors.is_empty() {
-                            println!("  Errors encountered:");
-                            for error in import_result.errors {
-                                println!("    - {}", error);
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to import data: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to import data: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
 }
 
 async fn handle_watch_command(
@@ -633,7 +437,7 @@ async fn handle_watch_command(
 
     // Load configuration with CLI overrides
     let mut config = Config::load()?;
-    
+
     // Apply CLI overrides
     if let Some(ref currency) = cli.currency {
         config.currency.default_currency = currency.clone();
@@ -643,12 +447,8 @@ async fn handle_watch_command(
     }
 
     // Create and start watch mode
-    let mut watch_mode = WatchMode::new(
-        config,
-        project_filter,
-        expensive_threshold,
-        refresh_rate_ms,
-    )?;
+    let mut watch_mode =
+        WatchMode::new(config, project_filter, expensive_threshold, refresh_rate_ms)?;
 
     // Start watching
     watch_mode.run().await?;
@@ -670,13 +470,16 @@ async fn handle_usage_command(
     colored: bool,
     timezone_name: &str,
     daily_cutoff_hour: u8,
-) {
+) -> anyhow::Result<()> {
     // Initialize timezone calculator
     let timezone_calc = match analysis::TimezoneCalculator::new(timezone_name, daily_cutoff_hour) {
         Ok(calc) => calc,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Invalid timezone configuration: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Invalid timezone configuration: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Invalid timezone configuration: {}", e);
             }
@@ -689,7 +492,10 @@ async fn handle_usage_command(
         Ok(db) => db,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to initialize database: {}", e);
             }
@@ -702,15 +508,21 @@ async fn handle_usage_command(
         Ok(config) => config,
         Err(_) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#
+                );
             } else {
                 eprintln!("Error: Failed to load config for projects path");
             }
             std::process::exit(1);
         }
     };
-    
-    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+
+    let projects_dir = if config_for_projects
+        .general
+        .claude_projects_path
+        .starts_with("~/")
+    {
         // Expand tilde to home directory
         if let Some(home_dir) = dirs::home_dir() {
             home_dir.join(&config_for_projects.general.claude_projects_path[2..])
@@ -727,7 +539,12 @@ async fn handle_usage_command(
     let mut dedup_engine = DeduplicationEngine::new();
 
     // Check if this is a daily command - requires special handling
-    if let Some(UsageTimeframe::Daily { project: daily_project, model: daily_model, days }) = &timeframe {
+    if let Some(UsageTimeframe::Daily {
+        project: daily_project,
+        model: daily_model,
+        days,
+    }) = &timeframe
+    {
         handle_daily_usage_command(
             *days,
             daily_project.clone().or(project),
@@ -740,12 +557,13 @@ async fn handle_usage_command(
             colored,
             timezone_name,
             daily_cutoff_hour,
-        ).await;
-        return;
+        )
+        .await?;
+        return Ok(());
     }
 
     // Parse timeframe into date filters
-    let (final_project, final_since, final_until, final_model) = 
+    let (final_project, final_since, final_until, final_model) =
         resolve_filters(timeframe, project, since, until, model, &timezone_calc);
 
     // Create usage filter
@@ -768,10 +586,16 @@ async fn handle_usage_command(
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to find JSONL files: {}", e);
-                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+                eprintln!(
+                    "Make sure you have Claude conversations in: {}",
+                    projects_dir.display()
+                );
             }
             std::process::exit(1);
         }
@@ -784,7 +608,7 @@ async fn handle_usage_command(
             println!("No Claude usage data found in {}", projects_dir.display());
             println!("Make sure you have conversations saved in Claude Desktop or CLI.");
         }
-        return;
+        return Ok(());
     }
 
     if verbose && !json_output {
@@ -801,7 +625,8 @@ async fn handle_usage_command(
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 // Use unified project name extraction for consistency
-                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                let project_name =
+                    parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = final_project {
@@ -810,12 +635,12 @@ async fn handle_usage_command(
                     }
                 }
                 total_messages += parsed_conversation.messages.len();
-                
+
                 // Apply deduplication
-                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                match dedup_engine.filter_duplicates(parsed_conversation.messages, &project_name) {
                     Ok(unique_data) => {
                         unique_messages += unique_data.len();
-                        
+
                         // Create enhanced usage data with project name
                         for data in unique_data {
                             // Create an enhanced usage data structure
@@ -829,23 +654,39 @@ async fn handle_usage_command(
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#,
+                                    file_path.display(),
+                                    e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                                eprintln!(
+                                    "Warning: Failed to deduplicate file {}: {}",
+                                    file_path.display(),
+                                    e
+                                );
                             }
                         }
                         continue;
                     }
                 }
-                
+
                 files_processed += 1;
             }
             Err(e) => {
                 if verbose {
                     if json_output {
-                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                        eprintln!(
+                            r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#,
+                            file_path.display(),
+                            e
+                        );
                     } else {
-                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                        eprintln!(
+                            "Warning: Failed to parse file {}: {}",
+                            file_path.display(),
+                            e
+                        );
                     }
                 }
             }
@@ -853,17 +694,21 @@ async fn handle_usage_command(
     }
 
     if verbose && !json_output {
-        println!("Processed {} files, {} total messages, {} unique messages", 
-                 files_processed, total_messages, unique_messages);
+        println!(
+            "Processed {} files, {} total messages, {} unique messages",
+            files_processed, total_messages, unique_messages
+        );
     }
 
     if all_usage_data.is_empty() {
         if json_output {
-            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+            println!(
+                r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#
+            );
         } else {
             println!("No usage data found matching your filters.");
         }
-        return;
+        return Ok(());
     }
 
     // Convert enhanced data to tuple format
@@ -873,11 +718,18 @@ async fn handle_usage_command(
         .collect();
 
     // Calculate usage with the tracker
-    let project_usage = match usage_tracker.calculate_usage_with_projects_filtered(usage_tuples, &pricing_manager, &usage_filter) {
+    let project_usage = match usage_tracker.calculate_usage_with_projects_filtered(
+        usage_tuples,
+        &pricing_manager,
+        &usage_filter,
+    ) {
         Ok(usage) => usage,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to calculate usage: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to calculate usage: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to calculate usage: {}", e);
             }
@@ -887,33 +739,45 @@ async fn handle_usage_command(
 
     // Apply remaining filters to the calculated usage
     let mut filtered_usage = apply_usage_filters(project_usage, &usage_filter);
-    
+
     // Convert currencies if needed
     if target_currency != "USD" {
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
-            
+
             // Convert all USD amounts to target currency
             for project in &mut filtered_usage {
-                match currency_converter.convert_from_usd(project.total_cost_usd, target_currency).await {
+                match currency_converter
+                    .convert_from_usd(project.total_cost_usd, target_currency)
+                    .await
+                {
                     Ok(converted_cost) => {
                         project.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
                     }
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, project.project_name, e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
+                                    project.project_name, e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to convert currency for {}: {}", project.project_name, e);
+                                eprintln!(
+                                    "Warning: Failed to convert currency for {}: {}",
+                                    project.project_name, e
+                                );
                             }
                         }
                         // Keep USD amounts if conversion fails
                     }
                 }
-                
+
                 // Convert model-level costs too
                 for model_usage in project.model_usage.values_mut() {
-                    match currency_converter.convert_from_usd(model_usage.cost_usd, target_currency).await {
+                    match currency_converter
+                        .convert_from_usd(model_usage.cost_usd, target_currency)
+                        .await
+                    {
                         Ok(converted_cost) => {
                             model_usage.cost_usd = converted_cost;
                         }
@@ -928,11 +792,13 @@ async fn handle_usage_command(
 
     if filtered_usage.is_empty() {
         if json_output {
-            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+            println!(
+                r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#
+            );
         } else {
             println!("No usage data found matching your filters.");
         }
-        return;
+        return Ok(());
     }
 
     // Display results
@@ -940,13 +806,24 @@ async fn handle_usage_command(
         match filtered_usage.to_json() {
             Ok(json) => println!("{}", json),
             Err(e) => {
-                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#,
+                    e
+                );
                 std::process::exit(1);
             }
         }
     } else {
-        println!("{}", filtered_usage.to_table_with_currency_and_color(target_currency, decimal_places, colored));
+        println!(
+            "{}",
+            filtered_usage.to_table_with_currency_and_color(
+                target_currency,
+                decimal_places,
+                colored
+            )
+        );
     }
+    Ok(())
 }
 
 fn resolve_filters(
@@ -956,39 +833,60 @@ fn resolve_filters(
     until: Option<String>,
     model: Option<String>,
     timezone_calc: &analysis::TimezoneCalculator,
-) -> (Option<String>, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<String>,
+) {
     let (tf_project, tf_model, tf_since, tf_until) = match timeframe {
-        Some(UsageTimeframe::Today { project: tf_project, model: tf_model }) => {
+        Some(UsageTimeframe::Today {
+            project: tf_project,
+            model: tf_model,
+        }) => {
             let start = timezone_calc.today_start();
             let end = timezone_calc.today_end();
             (tf_project, tf_model, Some(start), Some(end))
-        },
-        Some(UsageTimeframe::Yesterday { project: tf_project, model: tf_model }) => {
+        }
+        Some(UsageTimeframe::Yesterday {
+            project: tf_project,
+            model: tf_model,
+        }) => {
             let start = timezone_calc.yesterday_start();
             let end = timezone_calc.yesterday_end();
             (tf_project, tf_model, Some(start), Some(end))
-        },
-        Some(UsageTimeframe::ThisWeek { project: tf_project, model: tf_model }) => {
+        }
+        Some(UsageTimeframe::ThisWeek {
+            project: tf_project,
+            model: tf_model,
+        }) => {
             let start = timezone_calc.this_week_start();
             (tf_project, tf_model, Some(start), None)
-        },
-        Some(UsageTimeframe::ThisMonth { project: tf_project, model: tf_model }) => {
+        }
+        Some(UsageTimeframe::ThisMonth {
+            project: tf_project,
+            model: tf_model,
+        }) => {
             let start = timezone_calc.this_month_start();
             (tf_project, tf_model, Some(start), None)
-        },
-        Some(UsageTimeframe::Daily { project: tf_project, model: tf_model, days }) => {
+        }
+        Some(UsageTimeframe::Daily {
+            project: tf_project,
+            model: tf_model,
+            days,
+        }) => {
             let today = Utc::now().date_naive();
             let days_ago = today - chrono::Duration::days(days as i64 - 1); // Include today
             let start = Utc.from_utc_datetime(&days_ago.and_hms_opt(0, 0, 0).unwrap());
             (tf_project, tf_model, Some(start), None)
-        },
+        }
         None => (None, None, None, None),
     };
 
     // Merge timeframe filters with explicit filters
     let final_project = tf_project.or(project);
     let final_model = tf_model.or(model);
-    
+
     // Parse explicit date filters
     let final_since = tf_since.or_else(|| {
         since.and_then(|s| {
@@ -997,7 +895,7 @@ fn resolve_filters(
                 .map(|date| Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap()))
         })
     });
-    
+
     let final_until = tf_until.or_else(|| {
         until.and_then(|s| {
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
@@ -1013,7 +911,7 @@ fn print_filter_info(filter: &UsageFilter, json_output: bool) {
     if json_output {
         return; // Skip verbose info in JSON mode
     }
-    
+
     println!("Filters applied:");
     if let Some(ref project) = filter.project_name {
         println!("  Project: {}", project);
@@ -1031,10 +929,11 @@ fn print_filter_info(filter: &UsageFilter, json_output: bool) {
 }
 
 fn apply_usage_filters(
-    usage: Vec<analysis::usage::ProjectUsage>, 
-    filter: &UsageFilter
+    usage: Vec<analysis::usage::ProjectUsage>,
+    filter: &UsageFilter,
 ) -> Vec<analysis::usage::ProjectUsage> {
-    usage.into_iter()
+    usage
+        .into_iter()
         .filter(|project| {
             // Project filter already applied during parsing
             if let Some(ref model_filter) = filter.model_name {
@@ -1047,19 +946,31 @@ fn apply_usage_filters(
         .map(|mut project| {
             // If model filter is specified, filter model usage within each project
             if let Some(ref model_filter) = filter.model_name {
-                let filtered_model_usage: std::collections::HashMap<String, analysis::usage::ModelUsage> = 
-                    project.model_usage.into_iter()
-                        .filter(|(model_name, _)| model_name == model_filter)
-                        .collect();
-                
+                let filtered_model_usage: std::collections::HashMap<
+                    String,
+                    analysis::usage::ModelUsage,
+                > = project
+                    .model_usage
+                    .into_iter()
+                    .filter(|(model_name, _)| model_name == model_filter)
+                    .collect();
+
                 // Recalculate project totals based on filtered models
-                let total_input_tokens = filtered_model_usage.values().map(|m| m.input_tokens).sum();
-                let total_output_tokens = filtered_model_usage.values().map(|m| m.output_tokens).sum();
-                let total_cache_creation_tokens = filtered_model_usage.values().map(|m| m.cache_creation_tokens).sum();
-                let total_cache_read_tokens = filtered_model_usage.values().map(|m| m.cache_read_tokens).sum();
+                let total_input_tokens =
+                    filtered_model_usage.values().map(|m| m.input_tokens).sum();
+                let total_output_tokens =
+                    filtered_model_usage.values().map(|m| m.output_tokens).sum();
+                let total_cache_creation_tokens = filtered_model_usage
+                    .values()
+                    .map(|m| m.cache_creation_tokens)
+                    .sum();
+                let total_cache_read_tokens = filtered_model_usage
+                    .values()
+                    .map(|m| m.cache_read_tokens)
+                    .sum();
                 let total_cost_usd = filtered_model_usage.values().map(|m| m.cost_usd).sum();
                 let message_count = filtered_model_usage.values().map(|m| m.message_count).sum();
-                
+
                 project.model_usage = filtered_model_usage;
                 project.total_input_tokens = total_input_tokens;
                 project.total_output_tokens = total_output_tokens;
@@ -1068,7 +979,7 @@ fn apply_usage_filters(
                 project.total_cost_usd = total_cost_usd;
                 project.message_count = message_count;
             }
-            
+
             project
         })
         .filter(|project| {
@@ -1086,13 +997,16 @@ async fn handle_projects_command(
     json_output: bool,
     verbose: bool,
     colored: bool,
-) {
+) -> anyhow::Result<()> {
     // Initialize database and components
     let database = match get_database() {
         Ok(db) => db,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to initialize database: {}", e);
             }
@@ -1105,15 +1019,21 @@ async fn handle_projects_command(
         Ok(config) => config,
         Err(_) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#
+                );
             } else {
                 eprintln!("Error: Failed to load config for projects path");
             }
             std::process::exit(1);
         }
     };
-    
-    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+
+    let projects_dir = if config_for_projects
+        .general
+        .claude_projects_path
+        .starts_with("~/")
+    {
         // Expand tilde to home directory
         if let Some(home_dir) = dirs::home_dir() {
             home_dir.join(&config_for_projects.general.claude_projects_path[2..])
@@ -1138,10 +1058,16 @@ async fn handle_projects_command(
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to find JSONL files: {}", e);
-                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+                eprintln!(
+                    "Make sure you have Claude conversations in: {}",
+                    projects_dir.display()
+                );
             }
             std::process::exit(1);
         }
@@ -1154,7 +1080,7 @@ async fn handle_projects_command(
             println!("No Claude usage data found in {}", projects_dir.display());
             println!("Make sure you have conversations saved in Claude Desktop or CLI.");
         }
-        return;
+        return Ok(());
     }
 
     if verbose && !json_output {
@@ -1171,14 +1097,15 @@ async fn handle_projects_command(
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 // Use unified project name extraction for consistency
-                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                let project_name =
+                    parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
                 total_messages += parsed_conversation.messages.len();
-                
+
                 // Apply deduplication
-                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                match dedup_engine.filter_duplicates(parsed_conversation.messages, &project_name) {
                     Ok(unique_data) => {
                         unique_messages += unique_data.len();
-                        
+
                         // Create enhanced usage data with project name
                         for data in unique_data {
                             let enhanced_data = EnhancedUsageData {
@@ -1191,23 +1118,39 @@ async fn handle_projects_command(
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#,
+                                    file_path.display(),
+                                    e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                                eprintln!(
+                                    "Warning: Failed to deduplicate file {}: {}",
+                                    file_path.display(),
+                                    e
+                                );
                             }
                         }
                         continue;
                     }
                 }
-                
+
                 files_processed += 1;
             }
             Err(e) => {
                 if verbose {
                     if json_output {
-                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                        eprintln!(
+                            r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#,
+                            file_path.display(),
+                            e
+                        );
                     } else {
-                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                        eprintln!(
+                            "Warning: Failed to parse file {}: {}",
+                            file_path.display(),
+                            e
+                        );
                     }
                 }
             }
@@ -1215,8 +1158,10 @@ async fn handle_projects_command(
     }
 
     if verbose && !json_output {
-        println!("Processed {} files, {} total messages, {} unique messages", 
-                 files_processed, total_messages, unique_messages);
+        println!(
+            "Processed {} files, {} total messages, {} unique messages",
+            files_processed, total_messages, unique_messages
+        );
     }
 
     if all_usage_data.is_empty() {
@@ -1225,7 +1170,7 @@ async fn handle_projects_command(
         } else {
             println!("No usage data found in your Claude projects.");
         }
-        return;
+        return Ok(());
     }
 
     // Convert enhanced data to tuple format
@@ -1235,17 +1180,21 @@ async fn handle_projects_command(
         .collect();
 
     // Calculate usage with the tracker
-    let project_usage = match usage_tracker.calculate_usage_with_projects(usage_tuples, &pricing_manager) {
-        Ok(usage) => usage,
-        Err(e) => {
-            if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to calculate usage: {}"}}"#, e);
-            } else {
-                eprintln!("Error: Failed to calculate usage: {}", e);
+    let project_usage =
+        match usage_tracker.calculate_usage_with_projects(usage_tuples, &pricing_manager) {
+            Ok(usage) => usage,
+            Err(e) => {
+                if json_output {
+                    println!(
+                        r#"{{"status": "error", "message": "Failed to calculate usage: {}"}}"#,
+                        e
+                    );
+                } else {
+                    eprintln!("Error: Failed to calculate usage: {}", e);
+                }
+                std::process::exit(1);
             }
-            std::process::exit(1);
-        }
-    };
+        };
 
     if project_usage.is_empty() {
         if json_output {
@@ -1253,7 +1202,7 @@ async fn handle_projects_command(
         } else {
             println!("No project usage data found.");
         }
-        return;
+        return Ok(());
     }
 
     // Determine sort method
@@ -1265,24 +1214,33 @@ async fn handle_projects_command(
 
     // Analyze and sort projects
     let mut project_summaries = project_analyzer.analyze_projects(project_usage, sort_method);
-    
+
     // Convert currencies if needed
     if target_currency != "USD" {
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
-            
+
             // Convert all USD amounts to target currency
             for summary in &mut project_summaries {
-                match currency_converter.convert_from_usd(summary.total_cost_usd, target_currency).await {
+                match currency_converter
+                    .convert_from_usd(summary.total_cost_usd, target_currency)
+                    .await
+                {
                     Ok(converted_cost) => {
                         summary.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
                     }
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, summary.project_name, e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
+                                    summary.project_name, e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to convert currency for {}: {}", summary.project_name, e);
+                                eprintln!(
+                                    "Warning: Failed to convert currency for {}: {}",
+                                    summary.project_name, e
+                                );
                             }
                         }
                         // Keep USD amounts if conversion fails
@@ -1292,7 +1250,7 @@ async fn handle_projects_command(
         }
     }
 
-    // Get statistics  
+    // Get statistics
     let stats = project_analyzer.get_project_statistics(&project_summaries);
 
     // Display results
@@ -1304,30 +1262,50 @@ async fn handle_projects_command(
         match serde_json::to_string_pretty(&json_output) {
             Ok(json) => println!("{}", json),
             Err(e) => {
-                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#,
+                    e
+                );
                 std::process::exit(1);
             }
         }
     } else {
-        println!("{}", project_summaries.to_table_with_currency_and_color(target_currency, decimal_places, colored));
-        
+        println!(
+            "{}",
+            project_summaries.to_table_with_currency_and_color(
+                target_currency,
+                decimal_places,
+                colored
+            )
+        );
+
         // Show summary stats
         println!();
         println!("Summary:");
         println!("  Total Projects: {}", stats.total_projects);
-        println!("  Total Input Tokens: {}", format_number(stats.total_input_tokens));
-        println!("  Total Output Tokens: {}", format_number(stats.total_output_tokens));
+        println!(
+            "  Total Input Tokens: {}",
+            format_number(stats.total_input_tokens)
+        );
+        println!(
+            "  Total Output Tokens: {}",
+            format_number(stats.total_output_tokens)
+        );
         println!("  Total Messages: {}", format_number(stats.total_messages));
-        println!("  Total Cost: {}", models::currency::format_currency(stats.total_cost, target_currency, decimal_places));
-        
+        println!(
+            "  Total Cost: {}",
+            models::currency::format_currency(stats.total_cost, target_currency, decimal_places)
+        );
+
         if let Some(ref highest_cost) = stats.highest_cost_project {
             println!("  Highest Cost Project: {}", highest_cost);
         }
-        
+
         if let Some(ref most_active) = stats.most_active_project {
             println!("  Most Active Project: {}", most_active);
         }
     }
+    Ok(())
 }
 
 // Helper structure for daily usage data
@@ -1360,16 +1338,29 @@ impl OutputFormat for DailyUsageList {
         self.to_table_with_currency_and_color(currency, decimal_places, false)
     }
 
-    fn to_table_with_currency_and_color(&self, currency: &str, decimal_places: u8, colored: bool) -> String {
+    fn to_table_with_currency_and_color(
+        &self,
+        currency: &str,
+        decimal_places: u8,
+        colored: bool,
+    ) -> String {
         if self.0.is_empty() {
             return "No daily usage data found.".to_string();
         }
 
         // Convert to DailyUsageRow using the proper tabled infrastructure
-        let mut rows: Vec<output::DailyUsageRow> = self.0.iter()
-            .map(|usage| output::DailyUsageRow::from_daily_usage_with_currency(usage, currency, decimal_places))
+        let mut rows: Vec<output::DailyUsageRow> = self
+            .0
+            .iter()
+            .map(|usage| {
+                output::DailyUsageRow::from_daily_usage_with_currency(
+                    usage,
+                    currency,
+                    decimal_places,
+                )
+            })
             .collect();
-        
+
         // Calculate totals for summary row
         let total_input: u64 = self.0.iter().map(|d| d.total_input_tokens).sum();
         let total_output: u64 = self.0.iter().map(|d| d.total_output_tokens).sum();
@@ -1378,7 +1369,7 @@ impl OutputFormat for DailyUsageList {
         let total_messages: u64 = self.0.iter().map(|d| d.message_count).sum();
         let total_cost: f64 = self.0.iter().map(|d| d.total_cost_usd).sum();
         let total_projects: usize = self.0.iter().map(|d| d.projects_count).sum();
-        
+
         // Add totals row
         rows.push(output::DailyUsageRow {
             date: "TOTAL".to_string(),
@@ -1388,10 +1379,18 @@ impl OutputFormat for DailyUsageList {
             cache_read: output::table::format_number(total_cache_read),
             messages: output::table::format_number(total_messages),
             projects: total_projects.to_string(),
-            total_cost: crate::models::currency::format_currency(total_cost, currency, decimal_places),
+            total_cost: crate::models::currency::format_currency(
+                total_cost,
+                currency,
+                decimal_places,
+            ),
         });
-        
-        output::table::apply_table_style_with_color(tabled::Table::new(rows), colored, output::table::TableType::DailyUsage)
+
+        output::table::apply_table_style_with_color(
+            tabled::Table::new(rows),
+            colored,
+            output::table::TableType::DailyUsage,
+        )
     }
 }
 
@@ -1407,13 +1406,16 @@ async fn handle_daily_usage_command(
     colored: bool,
     timezone_name: &str,
     daily_cutoff_hour: u8,
-) {
+) -> anyhow::Result<()> {
     // Initialize database and components
     let database = match get_database() {
         Ok(db) => db,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to initialize database: {}", e);
             }
@@ -1426,15 +1428,21 @@ async fn handle_daily_usage_command(
         Ok(config) => config,
         Err(_) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#
+                );
             } else {
                 eprintln!("Error: Failed to load config for projects path");
             }
             std::process::exit(1);
         }
     };
-    
-    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+
+    let projects_dir = if config_for_projects
+        .general
+        .claude_projects_path
+        .starts_with("~/")
+    {
         // Expand tilde to home directory
         if let Some(home_dir) = dirs::home_dir() {
             home_dir.join(&config_for_projects.general.claude_projects_path[2..])
@@ -1458,10 +1466,16 @@ async fn handle_daily_usage_command(
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to find JSONL files: {}", e);
-                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+                eprintln!(
+                    "Make sure you have Claude conversations in: {}",
+                    projects_dir.display()
+                );
             }
             std::process::exit(1);
         }
@@ -1474,7 +1488,7 @@ async fn handle_daily_usage_command(
             println!("No Claude usage data found in {}", projects_dir.display());
             println!("Make sure you have conversations saved in Claude Desktop or CLI.");
         }
-        return;
+        return Ok(());
     }
 
     if verbose && !json_output {
@@ -1491,7 +1505,8 @@ async fn handle_daily_usage_command(
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 // Use unified project name extraction for consistency
-                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                let project_name =
+                    parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = project_filter {
@@ -1500,12 +1515,12 @@ async fn handle_daily_usage_command(
                     }
                 }
                 total_messages += parsed_conversation.messages.len();
-                
+
                 // Apply deduplication
-                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                match dedup_engine.filter_duplicates(parsed_conversation.messages, &project_name) {
                     Ok(unique_data) => {
                         unique_messages += unique_data.len();
-                        
+
                         // Create enhanced usage data with project name
                         for data in unique_data {
                             let enhanced_data = EnhancedUsageData {
@@ -1518,23 +1533,39 @@ async fn handle_daily_usage_command(
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#,
+                                    file_path.display(),
+                                    e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                                eprintln!(
+                                    "Warning: Failed to deduplicate file {}: {}",
+                                    file_path.display(),
+                                    e
+                                );
                             }
                         }
                         continue;
                     }
                 }
-                
+
                 files_processed += 1;
             }
             Err(e) => {
                 if verbose {
                     if json_output {
-                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                        eprintln!(
+                            r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#,
+                            file_path.display(),
+                            e
+                        );
                     } else {
-                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                        eprintln!(
+                            "Warning: Failed to parse file {}: {}",
+                            file_path.display(),
+                            e
+                        );
                     }
                 }
             }
@@ -1542,17 +1573,21 @@ async fn handle_daily_usage_command(
     }
 
     if verbose && !json_output {
-        println!("Processed {} files, {} total messages, {} unique messages", 
-                 files_processed, total_messages, unique_messages);
+        println!(
+            "Processed {} files, {} total messages, {} unique messages",
+            files_processed, total_messages, unique_messages
+        );
     }
 
     if all_usage_data.is_empty() {
         if json_output {
-            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+            println!(
+                r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#
+            );
         } else {
             println!("No usage data found matching your filters.");
         }
-        return;
+        return Ok(());
     }
 
     // Group usage by day
@@ -1569,7 +1604,8 @@ async fn handle_daily_usage_command(
         };
 
         // Extract model name and apply model filter
-        let model_name = message.message
+        let model_name = message
+            .message
             .as_ref()
             .and_then(|m| m.model.clone())
             .unwrap_or_else(|| "unknown".to_string());
@@ -1587,11 +1623,11 @@ async fn handle_daily_usage_command(
                 let today = Utc::now().date_naive();
                 let cutoff_date = today - chrono::Duration::days(days as i64 - 1);
                 let message_date = message_time.date_naive();
-                
+
                 if message_date < cutoff_date {
                     continue;
                 }
-                
+
                 message_date.format("%Y-%m-%d").to_string()
             } else {
                 continue; // Skip messages with unparseable timestamps
@@ -1633,9 +1669,12 @@ async fn handle_daily_usage_command(
             // Calculate from pricing
             if let Some(pricing) = pricing_manager.get_pricing(&model_name) {
                 let input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input_cost_per_mtok;
-                let output_cost = (output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_mtok;
-                let cache_creation_cost = (cache_creation_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
-                let cache_read_cost = (cache_read_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
+                let output_cost =
+                    (output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_mtok;
+                let cache_creation_cost =
+                    (cache_creation_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
+                let cache_read_cost =
+                    (cache_read_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
                 input_cost + output_cost + cache_creation_cost + cache_read_cost
             } else {
                 0.0
@@ -1646,7 +1685,8 @@ async fn handle_daily_usage_command(
     }
 
     // Count projects per day
-    let mut project_sets_by_day: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    let mut project_sets_by_day: HashMap<String, std::collections::HashSet<String>> =
+        HashMap::new();
     for enhanced in all_usage_data.iter() {
         if let Some(timestamp_str) = &enhanced.usage_data.timestamp {
             if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
@@ -1674,30 +1714,41 @@ async fn handle_daily_usage_command(
 
     if daily_usage_vec.is_empty() {
         if json_output {
-            println!(r#"{{"status": "success", "message": "No daily usage data found matching filters", "data": []}}"#);
+            println!(
+                r#"{{"status": "success", "message": "No daily usage data found matching filters", "data": []}}"#
+            );
         } else {
             println!("No daily usage data found matching your filters.");
         }
-        return;
+        return Ok(());
     }
 
     // Convert currencies if needed
     if target_currency != "USD" {
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
-            
+
             // Convert all USD amounts to target currency
             for daily in &mut daily_usage_vec {
-                match currency_converter.convert_from_usd(daily.total_cost_usd, target_currency).await {
+                match currency_converter
+                    .convert_from_usd(daily.total_cost_usd, target_currency)
+                    .await
+                {
                     Ok(converted_cost) => {
                         daily.total_cost_usd = converted_cost;
                     }
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, daily.date, e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
+                                    daily.date, e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to convert currency for {}: {}", daily.date, e);
+                                eprintln!(
+                                    "Warning: Failed to convert currency for {}: {}",
+                                    daily.date, e
+                                );
                             }
                         }
                         // Keep USD amounts if conversion fails
@@ -1715,31 +1766,42 @@ async fn handle_daily_usage_command(
         match daily_usage_list.to_json() {
             Ok(json) => println!("{}", json),
             Err(e) => {
-                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#,
+                    e
+                );
                 std::process::exit(1);
             }
         }
     } else {
-        println!("{}", daily_usage_list.to_table_with_currency_and_color(target_currency, decimal_places, colored));
+        println!(
+            "{}",
+            daily_usage_list.to_table_with_currency_and_color(
+                target_currency,
+                decimal_places,
+                colored
+            )
+        );
     }
+    Ok(())
 }
 
 fn format_number(n: u64) -> String {
     if n == 0 {
         return "0".to_string();
     }
-    
+
     let mut result = String::new();
     let s = n.to_string();
     let chars: Vec<char> = s.chars().collect();
-    
+
     for (i, ch) in chars.iter().enumerate() {
         if i > 0 && (chars.len() - i) % 3 == 0 {
             result.push(',');
         }
         result.push(*ch);
     }
-    
+
     result
 }
 
@@ -1761,13 +1823,16 @@ async fn handle_conversations_command(
     json_output: bool,
     verbose: bool,
     colored: bool,
-) {
+) -> anyhow::Result<()> {
     // Initialize database and components
     let database = match get_database() {
         Ok(db) => db,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to initialize database: {}", e);
             }
@@ -1780,15 +1845,21 @@ async fn handle_conversations_command(
         Ok(config) => config,
         Err(_) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#
+                );
             } else {
                 eprintln!("Error: Failed to load config for projects path");
             }
             std::process::exit(1);
         }
     };
-    
-    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+
+    let projects_dir = if config_for_projects
+        .general
+        .claude_projects_path
+        .starts_with("~/")
+    {
         // Expand tilde to home directory
         if let Some(home_dir) = dirs::home_dir() {
             home_dir.join(&config_for_projects.general.claude_projects_path[2..])
@@ -1813,10 +1884,16 @@ async fn handle_conversations_command(
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to find JSONL files: {}", e);
-                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+                eprintln!(
+                    "Make sure you have Claude conversations in: {}",
+                    projects_dir.display()
+                );
             }
             std::process::exit(1);
         }
@@ -1829,7 +1906,7 @@ async fn handle_conversations_command(
             println!("No Claude usage data found in {}", projects_dir.display());
             println!("Make sure you have conversations saved in Claude Desktop or CLI.");
         }
-        return;
+        return Ok(());
     }
 
     if verbose && !json_output {
@@ -1846,13 +1923,14 @@ async fn handle_conversations_command(
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 // Use unified project name extraction for consistency
-                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                let project_name =
+                    parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
                 total_messages += parsed_conversation.messages.len();
-                
-                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+
+                match dedup_engine.filter_duplicates(parsed_conversation.messages, &project_name) {
                     Ok(unique_data) => {
                         unique_messages += unique_data.len();
-                        
+
                         for data in unique_data {
                             let enhanced_data = EnhancedUsageData {
                                 usage_data: data,
@@ -1864,23 +1942,39 @@ async fn handle_conversations_command(
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#,
+                                    file_path.display(),
+                                    e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                                eprintln!(
+                                    "Warning: Failed to deduplicate file {}: {}",
+                                    file_path.display(),
+                                    e
+                                );
                             }
                         }
                         continue;
                     }
                 }
-                
+
                 files_processed += 1;
             }
             Err(e) => {
                 if verbose {
                     if json_output {
-                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                        eprintln!(
+                            r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#,
+                            file_path.display(),
+                            e
+                        );
                     } else {
-                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                        eprintln!(
+                            "Warning: Failed to parse file {}: {}",
+                            file_path.display(),
+                            e
+                        );
                     }
                 }
             }
@@ -1888,8 +1982,10 @@ async fn handle_conversations_command(
     }
 
     if verbose && !json_output {
-        println!("Processed {} files, {} total messages, {} unique messages", 
-                 files_processed, total_messages, unique_messages);
+        println!(
+            "Processed {} files, {} total messages, {} unique messages",
+            files_processed, total_messages, unique_messages
+        );
     }
 
     if all_usage_data.is_empty() {
@@ -1898,7 +1994,7 @@ async fn handle_conversations_command(
         } else {
             println!("No usage data found in your Claude projects.");
         }
-        return;
+        return Ok(());
     }
 
     // Convert enhanced data to tuple format
@@ -1912,7 +2008,10 @@ async fn handle_conversations_command(
         Ok(convs) => convs,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to group conversations: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to group conversations: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to group conversations: {}", e);
             }
@@ -1926,7 +2025,7 @@ async fn handle_conversations_command(
         } else {
             println!("No conversations found in your usage data.");
         }
-        return;
+        return Ok(());
     }
 
     // Analyze conversations
@@ -1934,7 +2033,10 @@ async fn handle_conversations_command(
         Ok(insights) => insights,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to analyze conversations: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to analyze conversations: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to analyze conversations: {}", e);
             }
@@ -1970,11 +2072,13 @@ async fn handle_conversations_command(
 
     if insights.is_empty() {
         if json_output {
-            println!(r#"{{"status": "success", "message": "No conversations found matching filters", "data": []}}"#);
+            println!(
+                r#"{{"status": "success", "message": "No conversations found matching filters", "data": []}}"#
+            );
         } else {
             println!("No conversations found matching your filters.");
         }
-        return;
+        return Ok(());
     }
 
     // Sort conversations
@@ -1994,18 +2098,27 @@ async fn handle_conversations_command(
     if target_currency != "USD" {
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
-            
+
             for insight in &mut insights {
-                match currency_converter.convert_from_usd(insight.total_cost, target_currency).await {
+                match currency_converter
+                    .convert_from_usd(insight.total_cost, target_currency)
+                    .await
+                {
                     Ok(converted_cost) => {
                         insight.total_cost = converted_cost;
                     }
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, insight.conversation_id, e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
+                                    insight.conversation_id, e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to convert currency for {}: {}", insight.conversation_id, e);
+                                eprintln!(
+                                    "Warning: Failed to convert currency for {}: {}",
+                                    insight.conversation_id, e
+                                );
                             }
                         }
                     }
@@ -2013,7 +2126,10 @@ async fn handle_conversations_command(
 
                 // Convert model-level costs too
                 for model_usage in insight.model_usage.values_mut() {
-                    match currency_converter.convert_from_usd(model_usage.cost_usd, target_currency).await {
+                    match currency_converter
+                        .convert_from_usd(model_usage.cost_usd, target_currency)
+                        .await
+                    {
                         Ok(converted_cost) => {
                             model_usage.cost_usd = converted_cost;
                         }
@@ -2029,7 +2145,7 @@ async fn handle_conversations_command(
     // Handle export if specified
     if let Some(export_format) = export {
         handle_conversation_export(export_format, &insights, json_output);
-        return;
+        return Ok(());
     }
 
     // Wrap in display wrapper
@@ -2038,14 +2154,28 @@ async fn handle_conversations_command(
     // Display results
     if json_output {
         match insights_list.to_json() {
-            Ok(json) => println!("{}", json),
+            Ok(json) => {
+                println!("{}", json);
+                return Ok(());
+            },
             Err(e) => {
-                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#,
+                    e
+                );
                 std::process::exit(1);
             }
         }
     } else {
-        println!("{}", insights_list.to_table_with_currency_and_color(target_currency, decimal_places, colored));
+        println!(
+            "{}",
+            insights_list.to_table_with_currency_and_color(
+                target_currency,
+                decimal_places,
+                colored
+            )
+        );
+        return Ok(());
     }
 }
 
@@ -2059,38 +2189,53 @@ fn handle_conversation_export(
 
     match export_format.to_lowercase().as_str() {
         "json" => {
-            let output = format!("conversations_{}.json", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+            let output = format!(
+                "conversations_{}.json",
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            );
             match serde_json::to_string_pretty(insights) {
-                Ok(json) => {
-                    match File::create(&output) {
-                        Ok(mut file) => {
-                            if let Err(e) = file.write_all(json.as_bytes()) {
-                                if json_output {
-                                    println!(r#"{{"status": "error", "message": "Failed to write JSON file: {}"}}"#, e);
-                                } else {
-                                    eprintln!("Error: Failed to write JSON file: {}", e);
-                                }
-                                std::process::exit(1);
-                            }
+                Ok(json) => match File::create(&output) {
+                    Ok(mut file) => {
+                        if let Err(e) = file.write_all(json.as_bytes()) {
                             if json_output {
-                                println!(r#"{{"status": "success", "message": "Exported {} conversations to {}", "count": {}}}"#, insights.len(), output, insights.len());
+                                println!(
+                                    r#"{{"status": "error", "message": "Failed to write JSON file: {}"}}"#,
+                                    e
+                                );
                             } else {
-                                println!("Exported {} conversations to {}", insights.len(), output);
-                            }
-                        }
-                        Err(e) => {
-                            if json_output {
-                                println!(r#"{{"status": "error", "message": "Failed to create JSON file: {}"}}"#, e);
-                            } else {
-                                eprintln!("Error: Failed to create JSON file: {}", e);
+                                eprintln!("Error: Failed to write JSON file: {}", e);
                             }
                             std::process::exit(1);
                         }
+                        if json_output {
+                            println!(
+                                r#"{{"status": "success", "message": "Exported {} conversations to {}", "count": {}}}"#,
+                                insights.len(),
+                                output,
+                                insights.len()
+                            );
+                        } else {
+                            println!("Exported {} conversations to {}", insights.len(), output);
+                        }
                     }
-                }
+                    Err(e) => {
+                        if json_output {
+                            println!(
+                                r#"{{"status": "error", "message": "Failed to create JSON file: {}"}}"#,
+                                e
+                            );
+                        } else {
+                            eprintln!("Error: Failed to create JSON file: {}", e);
+                        }
+                        std::process::exit(1);
+                    }
+                },
                 Err(e) => {
                     if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to serialize conversations: {}"}}"#, e);
+                        println!(
+                            r#"{{"status": "error", "message": "Failed to serialize conversations: {}"}}"#,
+                            e
+                        );
                     } else {
                         eprintln!("Error: Failed to serialize conversations: {}", e);
                     }
@@ -2099,14 +2244,20 @@ fn handle_conversation_export(
             }
         }
         "csv" => {
-            let output = format!("conversations_{}.csv", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+            let output = format!(
+                "conversations_{}.csv",
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            );
             match File::create(&output) {
                 Ok(mut file) => {
                     // Write CSV header
                     let header = "conversation_id,project_name,total_cost,message_count,total_input_tokens,total_output_tokens,efficiency_score,cache_hit_rate,duration_minutes,outlier_count\n";
                     if let Err(e) = file.write_all(header.as_bytes()) {
                         if json_output {
-                            println!(r#"{{"status": "error", "message": "Failed to write CSV header: {}"}}"#, e);
+                            println!(
+                                r#"{{"status": "error", "message": "Failed to write CSV header: {}"}}"#,
+                                e
+                            );
                         } else {
                             eprintln!("Error: Failed to write CSV header: {}", e);
                         }
@@ -2130,7 +2281,10 @@ fn handle_conversation_export(
                         );
                         if let Err(e) = file.write_all(row.as_bytes()) {
                             if json_output {
-                                println!(r#"{{"status": "error", "message": "Failed to write CSV row: {}"}}"#, e);
+                                println!(
+                                    r#"{{"status": "error", "message": "Failed to write CSV row: {}"}}"#,
+                                    e
+                                );
                             } else {
                                 eprintln!("Error: Failed to write CSV row: {}", e);
                             }
@@ -2139,14 +2293,22 @@ fn handle_conversation_export(
                     }
 
                     if json_output {
-                        println!(r#"{{"status": "success", "message": "Exported {} conversations to {}", "count": {}}}"#, insights.len(), output, insights.len());
+                        println!(
+                            r#"{{"status": "success", "message": "Exported {} conversations to {}", "count": {}}}"#,
+                            insights.len(),
+                            output,
+                            insights.len()
+                        );
                     } else {
                         println!("Exported {} conversations to {}", insights.len(), output);
                     }
                 }
                 Err(e) => {
                     if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to create CSV file: {}"}}"#, e);
+                        println!(
+                            r#"{{"status": "error", "message": "Failed to create CSV file: {}"}}"#,
+                            e
+                        );
                     } else {
                         eprintln!("Error: Failed to create CSV file: {}", e);
                     }
@@ -2156,7 +2318,9 @@ fn handle_conversation_export(
         }
         _ => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Unsupported export format. Use 'json' or 'csv'"}}"#);
+                println!(
+                    r#"{{"status": "error", "message": "Unsupported export format. Use 'json' or 'csv'"}}"#
+                );
             } else {
                 eprintln!("Error: Unsupported export format. Use 'json' or 'csv'");
             }
@@ -2180,13 +2344,16 @@ async fn handle_optimize_command(
     json_output: bool,
     verbose: bool,
     _colored: bool,
-) {
+) -> anyhow::Result<()> {
     // Initialize database and components
     let database = match get_database() {
         Ok(db) => db,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to initialize database: {}", e);
             }
@@ -2199,15 +2366,21 @@ async fn handle_optimize_command(
         Ok(config) => config,
         Err(_) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#
+                );
             } else {
                 eprintln!("Error: Failed to load config for projects path");
             }
             std::process::exit(1);
         }
     };
-    
-    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+
+    let projects_dir = if config_for_projects
+        .general
+        .claude_projects_path
+        .starts_with("~/")
+    {
         // Expand tilde to home directory
         if let Some(home_dir) = dirs::home_dir() {
             home_dir.join(&config_for_projects.general.claude_projects_path[2..])
@@ -2232,10 +2405,16 @@ async fn handle_optimize_command(
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to find JSONL files: {}", e);
-                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+                eprintln!(
+                    "Make sure you have Claude conversations in: {}",
+                    projects_dir.display()
+                );
             }
             std::process::exit(1);
         }
@@ -2248,7 +2427,7 @@ async fn handle_optimize_command(
             println!("No Claude usage data found in {}", projects_dir.display());
             println!("Make sure you have conversations saved in Claude Desktop or CLI.");
         }
-        return;
+        return Ok(());
     }
 
     if verbose && !json_output {
@@ -2265,7 +2444,8 @@ async fn handle_optimize_command(
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 // Use unified project name extraction for consistency
-                let project_name = parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                let project_name =
+                    parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = project {
@@ -2274,31 +2454,41 @@ async fn handle_optimize_command(
                     }
                 }
                 total_messages += parsed_conversation.messages.len();
-                
+
                 // Apply deduplication
-                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                match dedup_engine.filter_duplicates(parsed_conversation.messages, &project_name) {
                     Ok(unique_data) => {
                         unique_messages += unique_data.len();
-                        
+
                         // Create enhanced usage data with project name
                         for data in unique_data {
                             // Apply date filters if specified
                             if let Some(timestamp_str) = &data.timestamp {
-                                if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
+                                if let Ok(message_time) =
+                                    usage_tracker.parse_timestamp(timestamp_str)
+                                {
                                     // Check since filter
                                     if let Some(ref since_str) = since {
-                                        if let Ok(since_date) = chrono::NaiveDate::parse_from_str(since_str, "%Y-%m-%d") {
-                                            let since_datetime = chrono::Utc.from_utc_datetime(&since_date.and_hms_opt(0, 0, 0).unwrap());
+                                        if let Ok(since_date) =
+                                            chrono::NaiveDate::parse_from_str(since_str, "%Y-%m-%d")
+                                        {
+                                            let since_datetime = chrono::Utc.from_utc_datetime(
+                                                &since_date.and_hms_opt(0, 0, 0).unwrap(),
+                                            );
                                             if message_time < since_datetime {
                                                 continue;
                                             }
                                         }
                                     }
-                                    
+
                                     // Check until filter
                                     if let Some(ref until_str) = until {
-                                        if let Ok(until_date) = chrono::NaiveDate::parse_from_str(until_str, "%Y-%m-%d") {
-                                            let until_datetime = chrono::Utc.from_utc_datetime(&until_date.and_hms_opt(23, 59, 59).unwrap());
+                                        if let Ok(until_date) =
+                                            chrono::NaiveDate::parse_from_str(until_str, "%Y-%m-%d")
+                                        {
+                                            let until_datetime = chrono::Utc.from_utc_datetime(
+                                                &until_date.and_hms_opt(23, 59, 59).unwrap(),
+                                            );
                                             if message_time > until_datetime {
                                                 continue;
                                             }
@@ -2306,30 +2496,46 @@ async fn handle_optimize_command(
                                     }
                                 }
                             }
-                            
+
                             all_usage_data.push((data, project_name.clone()));
                         }
                     }
                     Err(e) => {
                         if verbose {
                             if json_output {
-                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                                eprintln!(
+                                    r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#,
+                                    file_path.display(),
+                                    e
+                                );
                             } else {
-                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                                eprintln!(
+                                    "Warning: Failed to deduplicate file {}: {}",
+                                    file_path.display(),
+                                    e
+                                );
                             }
                         }
                         continue;
                     }
                 }
-                
+
                 files_processed += 1;
             }
             Err(e) => {
                 if verbose {
                     if json_output {
-                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                        eprintln!(
+                            r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#,
+                            file_path.display(),
+                            e
+                        );
                     } else {
-                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                        eprintln!(
+                            "Warning: Failed to parse file {}: {}",
+                            file_path.display(),
+                            e
+                        );
                     }
                 }
             }
@@ -2337,25 +2543,34 @@ async fn handle_optimize_command(
     }
 
     if verbose && !json_output {
-        println!("Processed {} files, {} total messages, {} unique messages", 
-                 files_processed, total_messages, unique_messages);
+        println!(
+            "Processed {} files, {} total messages, {} unique messages",
+            files_processed, total_messages, unique_messages
+        );
     }
 
     if all_usage_data.is_empty() {
         if json_output {
-            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+            println!(
+                r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#
+            );
         } else {
             println!("No usage data found matching your filters.");
         }
-        return;
+        return Ok(());
     }
 
     // Analyze optimization opportunities
-    let mut optimization_summary = match optimization_engine.analyze_optimization_opportunities(all_usage_data) {
+    let mut optimization_summary = match optimization_engine
+        .analyze_optimization_opportunities(all_usage_data)
+    {
         Ok(summary) => summary,
         Err(e) => {
             if json_output {
-                println!(r#"{{"status": "error", "message": "Failed to analyze optimization opportunities: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to analyze optimization opportunities: {}"}}"#,
+                    e
+                );
             } else {
                 eprintln!("Error: Failed to analyze optimization opportunities: {}", e);
             }
@@ -2365,39 +2580,65 @@ async fn handle_optimize_command(
 
     // Apply confidence threshold filter if specified
     if let Some(min_confidence) = confidence_threshold {
-        optimization_summary = optimization_engine.filter_by_confidence(optimization_summary, min_confidence);
+        optimization_summary =
+            optimization_engine.filter_by_confidence(optimization_summary, min_confidence);
     }
 
     // Apply model transition filter if specified
     if model_from.is_some() || model_to.is_some() {
-        optimization_summary = optimization_engine.filter_by_model_transition(optimization_summary, model_from, model_to);
+        optimization_summary = optimization_engine.filter_by_model_transition(
+            optimization_summary,
+            model_from,
+            model_to,
+        );
     }
 
     // Convert currencies if needed
     if target_currency != "USD" {
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
-            
+
             // Convert currency values in the summary
-            if let Ok(converted_current) = currency_converter.convert_from_usd(optimization_summary.total_current_cost, target_currency).await {
+            if let Ok(converted_current) = currency_converter
+                .convert_from_usd(optimization_summary.total_current_cost, target_currency)
+                .await
+            {
                 optimization_summary.total_current_cost = converted_current;
             }
-            if let Ok(converted_potential) = currency_converter.convert_from_usd(optimization_summary.total_potential_cost, target_currency).await {
+            if let Ok(converted_potential) = currency_converter
+                .convert_from_usd(optimization_summary.total_potential_cost, target_currency)
+                .await
+            {
                 optimization_summary.total_potential_cost = converted_potential;
             }
-            if let Ok(converted_savings) = currency_converter.convert_from_usd(optimization_summary.total_potential_savings, target_currency).await {
+            if let Ok(converted_savings) = currency_converter
+                .convert_from_usd(
+                    optimization_summary.total_potential_savings,
+                    target_currency,
+                )
+                .await
+            {
                 optimization_summary.total_potential_savings = converted_savings;
             }
-            
+
             // Convert recommendation values
             for recommendation in &mut optimization_summary.recommendations {
-                if let Ok(converted) = currency_converter.convert_from_usd(recommendation.potential_savings, target_currency).await {
+                if let Ok(converted) = currency_converter
+                    .convert_from_usd(recommendation.potential_savings, target_currency)
+                    .await
+                {
                     recommendation.potential_savings = converted;
                 }
-                if let Ok(converted) = currency_converter.convert_from_usd(recommendation.total_current_cost, target_currency).await {
+                if let Ok(converted) = currency_converter
+                    .convert_from_usd(recommendation.total_current_cost, target_currency)
+                    .await
+                {
                     recommendation.total_current_cost = converted;
                 }
-                if let Ok(converted) = currency_converter.convert_from_usd(recommendation.total_potential_cost, target_currency).await {
+                if let Ok(converted) = currency_converter
+                    .convert_from_usd(recommendation.total_potential_cost, target_currency)
+                    .await
+                {
                     recommendation.total_potential_cost = converted;
                 }
             }
@@ -2407,40 +2648,50 @@ async fn handle_optimize_command(
     // Handle export if specified
     if let Some(export_format) = export {
         match export_format.to_lowercase().as_str() {
-            "json" => {
-                match serde_json::to_string_pretty(&optimization_summary) {
-                    Ok(json_str) => {
-                        let filename = format!("optimization_recommendations_{}.json", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
-                        if let Err(e) = std::fs::write(&filename, json_str) {
-                            if json_output {
-                                println!(r#"{{"status": "error", "message": "Failed to write export file: {}"}}"#, e);
-                            } else {
-                                eprintln!("Error: Failed to write export file: {}", e);
-                            }
-                            std::process::exit(1);
-                        } else {
-                            if json_output {
-                                println!(r#"{{"status": "success", "message": "Exported to {}", "file": "{}"}}"#, filename, filename);
-                            } else {
-                                println!("Optimization recommendations exported to: {}", filename);
-                            }
-                            return;
-                        }
-                    }
-                    Err(e) => {
+            "json" => match serde_json::to_string_pretty(&optimization_summary) {
+                Ok(json_str) => {
+                    let filename = format!(
+                        "optimization_recommendations_{}.json",
+                        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                    );
+                    if let Err(e) = std::fs::write(&filename, json_str) {
                         if json_output {
-                            println!(r#"{{"status": "error", "message": "Failed to serialize recommendations: {}"}}"#, e);
+                            println!(
+                                r#"{{"status": "error", "message": "Failed to write export file: {}"}}"#,
+                                e
+                            );
                         } else {
-                            eprintln!("Error: Failed to serialize recommendations: {}", e);
+                            eprintln!("Error: Failed to write export file: {}", e);
                         }
                         std::process::exit(1);
+                    } else {
+                        if json_output {
+                            println!(
+                                r#"{{"status": "success", "message": "Exported to {}", "file": "{}"}}"#,
+                                filename, filename
+                            );
+                        } else {
+                            println!("Optimization recommendations exported to: {}", filename);
+                        }
+                        return Ok(());
                     }
                 }
-            }
+                Err(e) => {
+                    if json_output {
+                        println!(
+                            r#"{{"status": "error", "message": "Failed to serialize recommendations: {}"}}"#,
+                            e
+                        );
+                    } else {
+                        eprintln!("Error: Failed to serialize recommendations: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            },
             "csv" => {
                 let mut csv_content = String::new();
                 csv_content.push_str("Current Model,Suggested Model,Confidence,Conversations,Current Cost,Potential Cost,Savings,Savings %,Reasoning\n");
-                
+
                 for rec in &optimization_summary.recommendations {
                     csv_content.push_str(&format!(
                         "{},{},{:.2},{},{:.2},{:.2},{:.2},{:.1}%,\"{}\"\n",
@@ -2455,27 +2706,38 @@ async fn handle_optimize_command(
                         rec.reasoning.replace('"', "'")
                     ));
                 }
-                
-                let filename = format!("optimization_recommendations_{}.csv", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+
+                let filename = format!(
+                    "optimization_recommendations_{}.csv",
+                    chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                );
                 if let Err(e) = std::fs::write(&filename, csv_content) {
                     if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to write CSV file: {}"}}"#, e);
+                        println!(
+                            r#"{{"status": "error", "message": "Failed to write CSV file: {}"}}"#,
+                            e
+                        );
                     } else {
                         eprintln!("Error: Failed to write CSV file: {}", e);
                     }
                     std::process::exit(1);
                 } else {
                     if json_output {
-                        println!(r#"{{"status": "success", "message": "Exported to {}", "file": "{}"}}"#, filename, filename);
+                        println!(
+                            r#"{{"status": "success", "message": "Exported to {}", "file": "{}"}}"#,
+                            filename, filename
+                        );
                     } else {
                         println!("Optimization recommendations exported to: {}", filename);
                     }
-                    return;
+                    return Ok(());
                 }
             }
             _ => {
                 if json_output {
-                    println!(r#"{{"status": "error", "message": "Unsupported export format. Use 'json' or 'csv'"}}"#);
+                    println!(
+                        r#"{{"status": "error", "message": "Unsupported export format. Use 'json' or 'csv'"}}"#
+                    );
                 } else {
                     eprintln!("Error: Unsupported export format. Use 'json' or 'csv'");
                 }
@@ -2489,7 +2751,10 @@ async fn handle_optimize_command(
         match serde_json::to_string_pretty(&optimization_summary) {
             Ok(json) => println!("{}", json),
             Err(e) => {
-                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                println!(
+                    r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#,
+                    e
+                );
                 std::process::exit(1);
             }
         }
@@ -2497,19 +2762,58 @@ async fn handle_optimize_command(
         // Show potential savings summary if requested
         if potential_savings {
             println!("Optimization Savings Summary:");
-            println!("  Total Conversations Analyzed: {}", optimization_summary.total_conversations_analyzed);
-            println!("  Current Total Cost: {}", models::currency::format_currency(optimization_summary.total_current_cost, target_currency, decimal_places));
-            println!("  Potential Total Cost: {}", models::currency::format_currency(optimization_summary.total_potential_cost, target_currency, decimal_places));
-            println!("  Total Potential Savings: {}", models::currency::format_currency(optimization_summary.total_potential_savings, target_currency, decimal_places));
-            println!("  Savings Percentage: {:.1}%", optimization_summary.savings_percentage);
-            
+            println!(
+                "  Total Conversations Analyzed: {}",
+                optimization_summary.total_conversations_analyzed
+            );
+            println!(
+                "  Current Total Cost: {}",
+                models::currency::format_currency(
+                    optimization_summary.total_current_cost,
+                    target_currency,
+                    decimal_places
+                )
+            );
+            println!(
+                "  Potential Total Cost: {}",
+                models::currency::format_currency(
+                    optimization_summary.total_potential_cost,
+                    target_currency,
+                    decimal_places
+                )
+            );
+            println!(
+                "  Total Potential Savings: {}",
+                models::currency::format_currency(
+                    optimization_summary.total_potential_savings,
+                    target_currency,
+                    decimal_places
+                )
+            );
+            println!(
+                "  Savings Percentage: {:.1}%",
+                optimization_summary.savings_percentage
+            );
+
             if !optimization_summary.optimization_opportunities.is_empty() {
                 println!("\nSavings by Current Model:");
-                let mut opportunities: Vec<_> = optimization_summary.optimization_opportunities.iter().collect();
-                opportunities.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                
+                let mut opportunities: Vec<_> = optimization_summary
+                    .optimization_opportunities
+                    .iter()
+                    .collect();
+                opportunities
+                    .sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+
                 for (model, savings) in opportunities {
-                    println!("  {}: {}", model, models::currency::format_currency(*savings, target_currency, decimal_places));
+                    println!(
+                        "  {}: {}",
+                        model,
+                        models::currency::format_currency(
+                            *savings,
+                            target_currency,
+                            decimal_places
+                        )
+                    );
                 }
             }
         } else {
@@ -2517,35 +2821,86 @@ async fn handle_optimize_command(
             println!("Model Usage Optimization Analysis");
             println!("================================");
             println!();
-            
+
             println!("Summary:");
-            println!("  Conversations Analyzed: {}", optimization_summary.total_conversations_analyzed);
-            println!("  Current Total Cost: {}", models::currency::format_currency(optimization_summary.total_current_cost, target_currency, decimal_places));
-            println!("  Potential Total Cost: {}", models::currency::format_currency(optimization_summary.total_potential_cost, target_currency, decimal_places));
-            println!("  Total Potential Savings: {}", models::currency::format_currency(optimization_summary.total_potential_savings, target_currency, decimal_places));
-            println!("  Savings Percentage: {:.1}%", optimization_summary.savings_percentage);
+            println!(
+                "  Conversations Analyzed: {}",
+                optimization_summary.total_conversations_analyzed
+            );
+            println!(
+                "  Current Total Cost: {}",
+                models::currency::format_currency(
+                    optimization_summary.total_current_cost,
+                    target_currency,
+                    decimal_places
+                )
+            );
+            println!(
+                "  Potential Total Cost: {}",
+                models::currency::format_currency(
+                    optimization_summary.total_potential_cost,
+                    target_currency,
+                    decimal_places
+                )
+            );
+            println!(
+                "  Total Potential Savings: {}",
+                models::currency::format_currency(
+                    optimization_summary.total_potential_savings,
+                    target_currency,
+                    decimal_places
+                )
+            );
+            println!(
+                "  Savings Percentage: {:.1}%",
+                optimization_summary.savings_percentage
+            );
             println!();
-            
+
             if optimization_summary.recommendations.is_empty() {
                 println!("No optimization opportunities found with the current filters.");
                 println!("Your model usage appears to be well-optimized!");
             } else {
                 println!("Optimization Recommendations:");
                 println!("============================");
-                
+
                 for (i, rec) in optimization_summary.recommendations.iter().enumerate() {
                     println!();
                     println!("{}. {} → {}", i + 1, rec.current_model, rec.suggested_model);
                     println!("   Conversations: {}", rec.conversation_count);
-                    println!("   Confidence: {:.0}% ({:?})", rec.confidence_score * 100.0, rec.confidence_level);
-                    println!("   Current Cost: {}", models::currency::format_currency(rec.total_current_cost, target_currency, decimal_places));
-                    println!("   Potential Cost: {}", models::currency::format_currency(rec.total_potential_cost, target_currency, decimal_places));
-                    println!("   Savings: {} ({:.1}%)", 
-                             models::currency::format_currency(rec.potential_savings, target_currency, decimal_places),
-                             rec.potential_savings_percentage);
+                    println!(
+                        "   Confidence: {:.0}% ({:?})",
+                        rec.confidence_score * 100.0,
+                        rec.confidence_level
+                    );
+                    println!(
+                        "   Current Cost: {}",
+                        models::currency::format_currency(
+                            rec.total_current_cost,
+                            target_currency,
+                            decimal_places
+                        )
+                    );
+                    println!(
+                        "   Potential Cost: {}",
+                        models::currency::format_currency(
+                            rec.total_potential_cost,
+                            target_currency,
+                            decimal_places
+                        )
+                    );
+                    println!(
+                        "   Savings: {} ({:.1}%)",
+                        models::currency::format_currency(
+                            rec.potential_savings,
+                            target_currency,
+                            decimal_places
+                        ),
+                        rec.potential_savings_percentage
+                    );
                     println!("   Reasoning: {}", rec.reasoning);
                 }
-                
+
                 println!();
                 println!("Implementation Tips:");
                 println!("- Start with high-confidence recommendations");
@@ -2554,25 +2909,26 @@ async fn handle_optimize_command(
                 println!("- Use 'ccost optimize --export csv' to save recommendations");
             }
         }
-        
+
         // Show model distribution
         if !optimization_summary.model_distribution.is_empty() && verbose {
             println!();
             println!("Current Model Distribution:");
             let mut distribution: Vec<_> = optimization_summary.model_distribution.iter().collect();
             distribution.sort_by(|a, b| b.1.cmp(a.1));
-            
+
             for (model, count) in distribution {
                 println!("  {}: {} conversations", model, count);
             }
         }
     }
+    Ok(())
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    
+
     // Load configuration
     let config = match Config::load() {
         Ok(config) => config,
@@ -2581,28 +2937,30 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    
+
     // Determine final currency (CLI override takes precedence)
-    let target_currency = cli.currency.as_ref()
+    let target_currency = cli
+        .currency
+        .as_ref()
         .unwrap_or(&config.currency.default_currency);
-    
+
     // Determine final colored setting (CLI override takes precedence)
     let colored = cli.colored || config.output.colored;
-    
+
     match cli.command {
-        Commands::Usage { 
+        Commands::Usage {
             timeframe,
-            project, 
-            since, 
-            until, 
-            model
+            project,
+            since,
+            until,
+            model,
         } => {
             handle_usage_command(
-                timeframe, 
-                project, 
-                since, 
-                until, 
-                model, 
+                timeframe,
+                project,
+                since,
+                until,
+                model,
                 target_currency,
                 config.currency.cache_ttl_hours,
                 config.output.decimal_places,
@@ -2611,7 +2969,8 @@ async fn main() {
                 colored,
                 &config.timezone.timezone,
                 config.timezone.daily_cutoff_hour,
-            ).await;
+            )
+            .await?;
         }
         Commands::Projects { sort_by } => {
             handle_projects_command(
@@ -2621,8 +2980,9 @@ async fn main() {
                 config.output.decimal_places,
                 cli.json,
                 cli.verbose,
-                colored
-            ).await;
+                colored,
+            )
+            .await?;
         }
         Commands::Conversations {
             sort_by,
@@ -2655,9 +3015,10 @@ async fn main() {
                 cli.json,
                 cli.verbose,
                 colored,
-            ).await;
+            )
+            .await?;
         }
-        Commands::Optimize { 
+        Commands::Optimize {
             project,
             since,
             until,
@@ -2682,24 +3043,28 @@ async fn main() {
                 cli.json,
                 cli.verbose,
                 colored,
-            ).await;
+            )
+            .await?;
         }
         Commands::Config { action } => {
             handle_config_action(action, cli.json);
         }
-        Commands::Export { format } => {
-            handle_export_command(format, cli.json);
-        }
-        Commands::Import { action } => {
-            handle_import_command(action, cli.json);
-        }
-        Commands::Watch { ref project, threshold, no_charts, refresh_rate } => {
-            if let Err(e) = handle_watch_command(project.clone(), threshold, no_charts, refresh_rate, &cli).await {
+        Commands::Watch {
+            ref project,
+            threshold,
+            no_charts,
+            refresh_rate,
+        } => {
+            if let Err(e) =
+                handle_watch_command(project.clone(), threshold, no_charts, refresh_rate, &cli)
+                    .await
+            {
                 eprintln!("Error starting watch mode: {}", e);
                 std::process::exit(1);
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2716,15 +3081,19 @@ mod tests {
     #[test]
     fn test_global_options() {
         let cli = Cli::try_parse_from([
-            "ccost", 
-            "--config", "/custom/config.toml",
-            "--currency", "EUR", 
-            "--timezone", "America/New_York",
+            "ccost",
+            "--config",
+            "/custom/config.toml",
+            "--currency",
+            "EUR",
+            "--timezone",
+            "America/New_York",
             "--verbose",
             "--json",
-            "usage"
-        ]).unwrap();
-        
+            "usage",
+        ])
+        .unwrap();
+
         assert_eq!(cli.config, Some("/custom/config.toml".to_string()));
         assert_eq!(cli.currency, Some("EUR".to_string()));
         assert_eq!(cli.timezone, Some("America/New_York".to_string()));
@@ -2735,16 +3104,27 @@ mod tests {
     #[test]
     fn test_usage_command_options() {
         let cli = Cli::try_parse_from([
-            "ccost", 
+            "ccost",
             "usage",
-            "--project", "transcribr",
-            "--since", "2025-06-01",
-            "--until", "2025-06-09",
-            "--model", "claude-sonnet-4"
-        ]).unwrap();
-        
+            "--project",
+            "transcribr",
+            "--since",
+            "2025-06-01",
+            "--until",
+            "2025-06-09",
+            "--model",
+            "claude-sonnet-4",
+        ])
+        .unwrap();
+
         match cli.command {
-            Commands::Usage { project, since, until, model, timeframe } => {
+            Commands::Usage {
+                project,
+                since,
+                until,
+                model,
+                timeframe,
+            } => {
                 assert_eq!(project, Some("transcribr".to_string()));
                 assert_eq!(since, Some("2025-06-01".to_string()));
                 assert_eq!(until, Some("2025-06-09".to_string()));
@@ -2760,43 +3140,54 @@ mod tests {
         let cli = Cli::try_parse_from(["ccost", "usage", "today"]).unwrap();
         match cli.command {
             Commands::Usage { timeframe, .. } => {
-                assert!(matches!(timeframe, Some(UsageTimeframe::Today { project: None, model: None })));
+                assert!(matches!(
+                    timeframe,
+                    Some(UsageTimeframe::Today {
+                        project: None,
+                        model: None
+                    })
+                ));
             }
             _ => panic!("Expected Usage command"),
         }
 
-        let cli = Cli::try_parse_from(["ccost", "usage", "yesterday", "--project", "test"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ccost", "usage", "yesterday", "--project", "test"]).unwrap();
         match cli.command {
-            Commands::Usage { timeframe, .. } => {
-                match timeframe {
-                    Some(UsageTimeframe::Yesterday { project, model }) => {
-                        assert_eq!(project, Some("test".to_string()));
-                        assert_eq!(model, None);
-                    }
-                    _ => panic!("Expected Yesterday timeframe"),
+            Commands::Usage { timeframe, .. } => match timeframe {
+                Some(UsageTimeframe::Yesterday { project, model }) => {
+                    assert_eq!(project, Some("test".to_string()));
+                    assert_eq!(model, None);
                 }
-            }
+                _ => panic!("Expected Yesterday timeframe"),
+            },
             _ => panic!("Expected Usage command"),
         }
 
-        let cli = Cli::try_parse_from(["ccost", "usage", "this-week", "--model", "claude-sonnet-4"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["ccost", "usage", "this-week", "--model", "claude-sonnet-4"])
+                .unwrap();
         match cli.command {
-            Commands::Usage { timeframe, .. } => {
-                match timeframe {
-                    Some(UsageTimeframe::ThisWeek { project, model }) => {
-                        assert_eq!(project, None);
-                        assert_eq!(model, Some("claude-sonnet-4".to_string()));
-                    }
-                    _ => panic!("Expected ThisWeek timeframe"),
+            Commands::Usage { timeframe, .. } => match timeframe {
+                Some(UsageTimeframe::ThisWeek { project, model }) => {
+                    assert_eq!(project, None);
+                    assert_eq!(model, Some("claude-sonnet-4".to_string()));
                 }
-            }
+                _ => panic!("Expected ThisWeek timeframe"),
+            },
             _ => panic!("Expected Usage command"),
         }
 
         let cli = Cli::try_parse_from(["ccost", "usage", "this-month"]).unwrap();
         match cli.command {
             Commands::Usage { timeframe, .. } => {
-                assert!(matches!(timeframe, Some(UsageTimeframe::ThisMonth { project: None, model: None })));
+                assert!(matches!(
+                    timeframe,
+                    Some(UsageTimeframe::ThisMonth {
+                        project: None,
+                        model: None
+                    })
+                ));
             }
             _ => panic!("Expected Usage command"),
         }
@@ -2804,12 +3195,8 @@ mod tests {
 
     #[test]
     fn test_projects_command_options() {
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "projects",
-            "cost"
-        ]).unwrap();
-        
+        let cli = Cli::try_parse_from(["ccost", "projects", "cost"]).unwrap();
+
         match cli.command {
             Commands::Projects { sort_by } => {
                 assert!(matches!(sort_by, Some(ProjectSort::Cost)));
@@ -2817,12 +3204,8 @@ mod tests {
             _ => panic!("Expected Projects command"),
         }
 
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "projects",
-            "tokens"
-        ]).unwrap();
-        
+        let cli = Cli::try_parse_from(["ccost", "projects", "tokens"]).unwrap();
+
         match cli.command {
             Commands::Projects { sort_by } => {
                 assert!(matches!(sort_by, Some(ProjectSort::Tokens)));
@@ -2831,11 +3214,8 @@ mod tests {
         }
 
         // Test default (no subcommand)
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "projects"
-        ]).unwrap();
-        
+        let cli = Cli::try_parse_from(["ccost", "projects"]).unwrap();
+
         match cli.command {
             Commands::Projects { sort_by } => {
                 assert!(matches!(sort_by, None));
@@ -2846,12 +3226,8 @@ mod tests {
 
     #[test]
     fn test_config_command_options() {
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "config",
-            "show"
-        ]).unwrap();
-        
+        let cli = Cli::try_parse_from(["ccost", "config", "show"]).unwrap();
+
         match cli.command {
             Commands::Config { action } => {
                 assert!(matches!(action, ConfigAction::Show));
@@ -2859,12 +3235,8 @@ mod tests {
             _ => panic!("Expected Config command"),
         }
 
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "config",
-            "init"
-        ]).unwrap();
-        
+        let cli = Cli::try_parse_from(["ccost", "config", "init"]).unwrap();
+
         match cli.command {
             Commands::Config { action } => {
                 assert!(matches!(action, ConfigAction::Init));
@@ -2872,28 +3244,21 @@ mod tests {
             _ => panic!("Expected Config command"),
         }
 
-        let cli = Cli::try_parse_from([
-            "ccost", 
-            "config",
-            "set",
-            "currency.default_currency",
-            "EUR"
-        ]).unwrap();
-        
+        let cli =
+            Cli::try_parse_from(["ccost", "config", "set", "currency.default_currency", "EUR"])
+                .unwrap();
+
         match cli.command {
-            Commands::Config { action } => {
-                match action {
-                    ConfigAction::Set { key, value } => {
-                        assert_eq!(key, "currency.default_currency");
-                        assert_eq!(value, "EUR");
-                    }
-                    _ => panic!("Expected Set action"),
+            Commands::Config { action } => match action {
+                ConfigAction::Set { key, value } => {
+                    assert_eq!(key, "currency.default_currency");
+                    assert_eq!(value, "EUR");
                 }
-            }
+                _ => panic!("Expected Set action"),
+            },
             _ => panic!("Expected Config command"),
         }
     }
-
 
     #[test]
     fn test_invalid_command_fails() {
@@ -2904,23 +3269,31 @@ mod tests {
     #[test]
     fn test_optimize_command_options() {
         let cli = Cli::try_parse_from([
-            "ccost", 
+            "ccost",
             "optimize",
-            "--project", "transcribr",
-            "--since", "2025-06-01",
-            "--until", "2025-06-09",
-            "--confidence-threshold", "0.8",
-            "--model-from", "Opus",
-            "--model-to", "Sonnet",
+            "--project",
+            "transcribr",
+            "--since",
+            "2025-06-01",
+            "--until",
+            "2025-06-09",
+            "--confidence-threshold",
+            "0.8",
+            "--model-from",
+            "Opus",
+            "--model-to",
+            "Sonnet",
             "--potential-savings",
-            "--export", "csv"
-        ]).unwrap();
-        
+            "--export",
+            "csv",
+        ])
+        .unwrap();
+
         match cli.command {
-            Commands::Optimize { 
-                project, 
-                since, 
-                until, 
+            Commands::Optimize {
+                project,
+                since,
+                until,
                 potential_savings,
                 export,
                 confidence_threshold,
@@ -2945,9 +3318,9 @@ mod tests {
         // Test that help commands don't panic
         let result = Cli::try_parse_from(["ccost", "--help"]);
         assert!(result.is_err()); // Help exits with error code but shouldn't panic
-        
+
         let result = Cli::try_parse_from(["ccost", "usage", "--help"]);
         assert!(result.is_err()); // Help exits with error code but shouldn't panic
     }
-
 }
+

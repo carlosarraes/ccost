@@ -28,24 +28,8 @@ impl DeduplicationEngine {
     pub fn with_database(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path)?;
         
-        // Create table if it doesn't exist
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS processed_messages (
-                hash TEXT PRIMARY KEY,
-                uuid TEXT,
-                request_id TEXT,
-                timestamp TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )",
-            [],
-        )?;
-
-        // Create index for faster lookups
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_processed_messages_timestamp 
-             ON processed_messages(timestamp)",
-            [],
-        )?;
+        // Note: We'll use the main database schema (message_hash, project_name, session_id, processed_at)
+        // The table is created by migrations, so we don't need to create it here
 
         let mut engine = Self {
             seen_hashes: HashSet::new(),
@@ -61,7 +45,7 @@ impl DeduplicationEngine {
     /// Load existing hashes from database into memory for fast lookups
     fn load_existing_hashes(&mut self) -> Result<()> {
         if let Some(conn) = &self.connection {
-            let mut stmt = conn.prepare("SELECT hash FROM processed_messages")?;
+            let mut stmt = conn.prepare("SELECT message_hash FROM processed_messages")?;
             let hash_iter = stmt.query_map([], |row| row.get(0))?;
 
             for hash_result in hash_iter {
@@ -96,7 +80,7 @@ impl DeduplicationEngine {
     }
 
     /// Mark a message as processed
-    pub fn mark_as_processed(&mut self, message: &UsageData) -> Result<bool> {
+    pub fn mark_as_processed(&mut self, message: &UsageData, project_name: &str) -> Result<bool> {
         if let Some(hash) = Self::generate_hash(&message.uuid, &message.request_id) {
             // Check if already exists
             if self.seen_hashes.contains(&hash) {
@@ -108,14 +92,15 @@ impl DeduplicationEngine {
 
             // Persist to database if available
             if let Some(conn) = &self.connection {
+                let now = chrono::Utc::now().to_rfc3339();
                 conn.execute(
-                    "INSERT OR IGNORE INTO processed_messages (hash, uuid, request_id, timestamp) 
+                    "INSERT OR IGNORE INTO processed_messages (message_hash, project_name, session_id, processed_at) 
                      VALUES (?1, ?2, ?3, ?4)",
                     params![
                         hash,
-                        message.uuid.as_deref().unwrap_or(""),
-                        message.request_id.as_deref().unwrap_or(""),
-                        message.timestamp.as_deref().unwrap_or("")
+                        project_name,
+                        None::<String>, // session_id - could be added later
+                        now
                     ],
                 )?;
             }
@@ -127,7 +112,7 @@ impl DeduplicationEngine {
     }
 
     /// Process a batch of messages, returning only non-duplicates
-    pub fn filter_duplicates(&mut self, messages: Vec<UsageData>) -> Result<Vec<UsageData>> {
+    pub fn filter_duplicates(&mut self, messages: Vec<UsageData>, project_name: &str) -> Result<Vec<UsageData>> {
         let mut unique_messages = Vec::new();
         let mut stats = DeduplicationStats::default();
 
@@ -140,7 +125,7 @@ impl DeduplicationEngine {
             }
 
             if let Some(_hash) = Self::generate_hash(&message.uuid, &message.request_id) {
-                self.mark_as_processed(&message)?;
+                self.mark_as_processed(&message, project_name)?;
                 unique_messages.push(message);
                 stats.unique_messages += 1;
             } else {
@@ -289,13 +274,13 @@ mod tests {
         );
         
         // First time should return true (newly processed)
-        assert!(engine.mark_as_processed(&message).unwrap());
+        assert!(engine.mark_as_processed(&message, "test_project").unwrap());
         
         // Now it should be a duplicate
         assert!(engine.is_duplicate(&message));
         
         // Second time should return false (already processed)
-        assert!(!engine.mark_as_processed(&message).unwrap());
+        assert!(!engine.mark_as_processed(&message, "test_project").unwrap());
     }
 
     #[test]
@@ -304,7 +289,7 @@ mod tests {
         let message = create_test_message(None, None);
         
         // Cannot mark messages without IDs
-        assert!(!engine.mark_as_processed(&message).unwrap());
+        assert!(!engine.mark_as_processed(&message, "test_project").unwrap());
     }
 
     #[test]
@@ -318,7 +303,7 @@ mod tests {
             create_test_message(Some("uuid-3".to_string()), Some("req-3".to_string())),
         ];
         
-        let unique = engine.filter_duplicates(messages).unwrap();
+        let unique = engine.filter_duplicates(messages, "test_project").unwrap();
         
         assert_eq!(unique.len(), 3); // One duplicate removed
         assert_eq!(engine.processed_count(), 3);
@@ -335,7 +320,7 @@ mod tests {
             create_test_message(None, None), // Missing both
         ];
         
-        let unique = engine.filter_duplicates(messages).unwrap();
+        let unique = engine.filter_duplicates(messages, "test_project").unwrap();
         
         // All messages should be included (none are duplicates)
         assert_eq!(unique.len(), 4);
@@ -361,11 +346,11 @@ mod tests {
         ];
         
         // Process branch 1
-        let unique1 = engine.filter_duplicates(branch1).unwrap();
+        let unique1 = engine.filter_duplicates(branch1, "test_project").unwrap();
         assert_eq!(unique1.len(), 3);
         
         // Process branch 2
-        let unique2 = engine.filter_duplicates(branch2).unwrap();
+        let unique2 = engine.filter_duplicates(branch2, "test_project").unwrap();
         assert_eq!(unique2.len(), 1); // Only uuid-4 is new
         
         assert_eq!(engine.processed_count(), 4); // Total unique messages
@@ -383,8 +368,8 @@ mod tests {
             let message1 = create_test_message(Some("uuid-1".to_string()), Some("req-1".to_string()));
             let message2 = create_test_message(Some("uuid-2".to_string()), Some("req-2".to_string()));
             
-            assert!(engine.mark_as_processed(&message1).unwrap());
-            assert!(engine.mark_as_processed(&message2).unwrap());
+            assert!(engine.mark_as_processed(&message1, "test_project").unwrap());
+            assert!(engine.mark_as_processed(&message2, "test_project").unwrap());
             assert_eq!(engine.processed_count(), 2);
         }
         
@@ -403,7 +388,7 @@ mod tests {
         let mut engine = DeduplicationEngine::new();
         
         let message = create_test_message(Some("uuid-1".to_string()), Some("req-1".to_string()));
-        engine.mark_as_processed(&message).unwrap();
+        engine.mark_as_processed(&message, "test_project").unwrap();
         
         assert_eq!(engine.processed_count(), 1);
         
@@ -428,7 +413,7 @@ mod tests {
         }
         
         let start = std::time::Instant::now();
-        let unique = engine.filter_duplicates(messages).unwrap();
+        let unique = engine.filter_duplicates(messages, "test_project").unwrap();
         let duration = start.elapsed();
         
         assert_eq!(unique.len(), 8000); // Should have 8000 unique messages
