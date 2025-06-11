@@ -656,7 +656,7 @@ async fn handle_watch_command(
     Ok(())
 }
 
-fn handle_usage_command(
+async fn handle_usage_command(
     timeframe: Option<UsageTimeframe>,
     project: Option<String>,
     since: Option<String>,
@@ -740,7 +740,7 @@ fn handle_usage_command(
             colored,
             timezone_name,
             daily_cutoff_hour,
-        );
+        ).await;
         return;
     }
 
@@ -893,22 +893,9 @@ fn handle_usage_command(
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
             
-            // Create an async runtime for currency conversion
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(runtime) => runtime,
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to create async runtime: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            };
-            
             // Convert all USD amounts to target currency
             for project in &mut filtered_usage {
-                match rt.block_on(currency_converter.convert_from_usd(project.total_cost_usd, target_currency)) {
+                match currency_converter.convert_from_usd(project.total_cost_usd, target_currency).await {
                     Ok(converted_cost) => {
                         project.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
                     }
@@ -926,7 +913,7 @@ fn handle_usage_command(
                 
                 // Convert model-level costs too
                 for model_usage in project.model_usage.values_mut() {
-                    match rt.block_on(currency_converter.convert_from_usd(model_usage.cost_usd, target_currency)) {
+                    match currency_converter.convert_from_usd(model_usage.cost_usd, target_currency).await {
                         Ok(converted_cost) => {
                             model_usage.cost_usd = converted_cost;
                         }
@@ -1091,7 +1078,7 @@ fn apply_usage_filters(
         .collect()
 }
 
-fn handle_projects_command(
+async fn handle_projects_command(
     sort_by: Option<ProjectSort>,
     target_currency: &str,
     cache_ttl_hours: u32,
@@ -1284,22 +1271,9 @@ fn handle_projects_command(
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
             
-            // Create an async runtime for currency conversion
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(runtime) => runtime,
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to create async runtime: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            };
-            
             // Convert all USD amounts to target currency
             for summary in &mut project_summaries {
-                match rt.block_on(currency_converter.convert_from_usd(summary.total_cost_usd, target_currency)) {
+                match currency_converter.convert_from_usd(summary.total_cost_usd, target_currency).await {
                     Ok(converted_cost) => {
                         summary.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
                     }
@@ -1421,7 +1395,7 @@ impl OutputFormat for DailyUsageList {
     }
 }
 
-fn handle_daily_usage_command(
+async fn handle_daily_usage_command(
     days: u32,
     project_filter: Option<String>,
     model_filter: Option<String>,
@@ -1712,22 +1686,9 @@ fn handle_daily_usage_command(
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
             
-            // Create an async runtime for currency conversion
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(runtime) => runtime,
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to create async runtime: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            };
-            
             // Convert all USD amounts to target currency
             for daily in &mut daily_usage_vec {
-                match rt.block_on(currency_converter.convert_from_usd(daily.total_cost_usd, target_currency)) {
+                match currency_converter.convert_from_usd(daily.total_cost_usd, target_currency).await {
                     Ok(converted_cost) => {
                         daily.total_cost_usd = converted_cost;
                     }
@@ -1782,7 +1743,7 @@ fn format_number(n: u64) -> String {
     result
 }
 
-fn handle_conversations_command(
+async fn handle_conversations_command(
     sort_by: Option<ConversationSort>,
     project: Option<String>,
     since: Option<String>,
@@ -2034,20 +1995,8 @@ fn handle_conversations_command(
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
             
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(runtime) => runtime,
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to create async runtime: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            };
-            
             for insight in &mut insights {
-                match rt.block_on(currency_converter.convert_from_usd(insight.total_cost, target_currency)) {
+                match currency_converter.convert_from_usd(insight.total_cost, target_currency).await {
                     Ok(converted_cost) => {
                         insight.total_cost = converted_cost;
                     }
@@ -2064,7 +2013,7 @@ fn handle_conversations_command(
 
                 // Convert model-level costs too
                 for model_usage in insight.model_usage.values_mut() {
-                    match rt.block_on(currency_converter.convert_from_usd(model_usage.cost_usd, target_currency)) {
+                    match currency_converter.convert_from_usd(model_usage.cost_usd, target_currency).await {
                         Ok(converted_cost) => {
                             model_usage.cost_usd = converted_cost;
                         }
@@ -2216,7 +2165,7 @@ fn handle_conversation_export(
     }
 }
 
-fn handle_optimize_command(
+async fn handle_optimize_command(
     project: Option<String>,
     since: Option<String>,
     until: Option<String>,
@@ -2429,39 +2378,26 @@ fn handle_optimize_command(
         if let Ok(db_clone) = get_database() {
             let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
             
-            // Create an async runtime for currency conversion
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(runtime) => runtime,
-                Err(e) => {
-                    if json_output {
-                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
-                    } else {
-                        eprintln!("Error: Failed to create async runtime: {}", e);
-                    }
-                    std::process::exit(1);
-                }
-            };
-            
             // Convert currency values in the summary
-            if let Ok(converted_current) = rt.block_on(currency_converter.convert_from_usd(optimization_summary.total_current_cost, target_currency)) {
+            if let Ok(converted_current) = currency_converter.convert_from_usd(optimization_summary.total_current_cost, target_currency).await {
                 optimization_summary.total_current_cost = converted_current;
             }
-            if let Ok(converted_potential) = rt.block_on(currency_converter.convert_from_usd(optimization_summary.total_potential_cost, target_currency)) {
+            if let Ok(converted_potential) = currency_converter.convert_from_usd(optimization_summary.total_potential_cost, target_currency).await {
                 optimization_summary.total_potential_cost = converted_potential;
             }
-            if let Ok(converted_savings) = rt.block_on(currency_converter.convert_from_usd(optimization_summary.total_potential_savings, target_currency)) {
+            if let Ok(converted_savings) = currency_converter.convert_from_usd(optimization_summary.total_potential_savings, target_currency).await {
                 optimization_summary.total_potential_savings = converted_savings;
             }
             
             // Convert recommendation values
             for recommendation in &mut optimization_summary.recommendations {
-                if let Ok(converted) = rt.block_on(currency_converter.convert_from_usd(recommendation.potential_savings, target_currency)) {
+                if let Ok(converted) = currency_converter.convert_from_usd(recommendation.potential_savings, target_currency).await {
                     recommendation.potential_savings = converted;
                 }
-                if let Ok(converted) = rt.block_on(currency_converter.convert_from_usd(recommendation.total_current_cost, target_currency)) {
+                if let Ok(converted) = currency_converter.convert_from_usd(recommendation.total_current_cost, target_currency).await {
                     recommendation.total_current_cost = converted;
                 }
-                if let Ok(converted) = rt.block_on(currency_converter.convert_from_usd(recommendation.total_potential_cost, target_currency)) {
+                if let Ok(converted) = currency_converter.convert_from_usd(recommendation.total_potential_cost, target_currency).await {
                     recommendation.total_potential_cost = converted;
                 }
             }
@@ -2675,7 +2611,7 @@ async fn main() {
                 colored,
                 &config.timezone.timezone,
                 config.timezone.daily_cutoff_hour,
-            );
+            ).await;
         }
         Commands::Projects { sort_by } => {
             handle_projects_command(
@@ -2686,7 +2622,7 @@ async fn main() {
                 cli.json,
                 cli.verbose,
                 colored
-            );
+            ).await;
         }
         Commands::Conversations {
             sort_by,
@@ -2719,7 +2655,7 @@ async fn main() {
                 cli.json,
                 cli.verbose,
                 colored,
-            );
+            ).await;
         }
         Commands::Optimize { 
             project,
@@ -2746,7 +2682,7 @@ async fn main() {
                 cli.json,
                 cli.verbose,
                 colored,
-            );
+            ).await;
         }
         Commands::Config { action } => {
             handle_config_action(action, cli.json);

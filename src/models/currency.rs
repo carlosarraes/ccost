@@ -129,7 +129,7 @@ impl CurrencyConverter {
     }
 
     /// Cache exchange rate in database
-    async fn cache_exchange_rate(&self, rate: &ExchangeRate) -> Result<()> {
+    pub async fn cache_exchange_rate(&self, rate: &ExchangeRate) -> Result<()> {
         self.db.save_exchange_rate(
             &rate.base_currency,
             &rate.target_currency,
