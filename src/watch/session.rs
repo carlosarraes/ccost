@@ -77,6 +77,7 @@ impl SessionState {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SessionTracker {
     sessions: HashMap<String, SessionState>,
     idle_timeout: Duration,

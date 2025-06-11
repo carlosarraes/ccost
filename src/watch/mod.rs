@@ -4,9 +4,11 @@ pub mod events;
 pub mod file_watcher;
 pub mod session;
 pub mod watch_mode;
+pub mod simple_watch;
 
 pub use dashboard::{Dashboard, DashboardState};
-pub use events::{WatchEvent, FileEvent};
+pub use events::{WatchEvent, FileEvent, EfficiencyLevel};
 pub use file_watcher::FileWatcher;
-pub use session::{SessionTracker, SessionState};
+pub use session::{SessionTracker, SessionState, SessionStatistics};
 pub use watch_mode::WatchMode;
+pub use simple_watch::SimpleWatchMode;
