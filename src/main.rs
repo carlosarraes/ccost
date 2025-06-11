@@ -10,7 +10,7 @@ use models::currency::CurrencyConverter;
 use storage::Database;
 use parser::jsonl::JsonlParser;
 use parser::deduplication::DeduplicationEngine;
-use analysis::{UsageTracker, UsageFilter, CostCalculationMode, ProjectAnalyzer, ProjectSortBy};
+use analysis::{UsageTracker, UsageFilter, CostCalculationMode, ProjectAnalyzer, ProjectSortBy, OptimizationEngine, ConversationAnalyzer, ConversationFilter, ConversationSortBy, ConversationInsightList, ConversationInsight};
 use output::OutputFormat;
 
 // Module declarations
@@ -21,6 +21,7 @@ mod models;
 mod analysis;
 mod output;
 mod sync;
+mod alerts;
 
 // Helper structure to associate usage data with project name
 #[derive(Debug, Clone)]
@@ -131,6 +132,24 @@ enum ProjectSort {
 }
 
 #[derive(Subcommand)]
+enum ConversationSort {
+    /// Sort conversations by cost (highest first)
+    Cost,
+    /// Sort conversations by token usage (highest first)
+    Tokens,
+    /// Sort conversations by efficiency score (highest first)
+    Efficiency,
+    /// Sort conversations by message count (highest first)
+    Messages,
+    /// Sort conversations by duration (longest first)
+    Duration,
+    /// Sort conversations by start time (newest first)
+    StartTime,
+}
+
+
+
+#[derive(Subcommand)]
 enum ConfigAction {
     /// Show current configuration
     Show,
@@ -177,6 +196,34 @@ enum ImportAction {
 }
 
 #[derive(Subcommand)]
+enum AlertAction {
+    /// List current alert configuration and status
+    List,
+    /// Enable specific alert type
+    Enable {
+        /// Alert type (daily_spending, weekly_spending, monthly_spending, daily_tokens, opus_efficiency, cache_rate, spending_spike)
+        alert_type: String,
+        /// Optional threshold value
+        #[arg(long)]
+        threshold: Option<f64>,
+    },
+    /// Disable specific alert type
+    Disable {
+        /// Alert type to disable
+        alert_type: String,
+    },
+    /// Test desktop notification system
+    Test,
+    /// Configure alert threshold
+    Set {
+        /// Threshold type (daily_spending, weekly_spending, monthly_spending, daily_tokens, cache_hit_rate, opus_usage, spending_spike_factor)
+        threshold_type: String,
+        /// Threshold value
+        value: f64,
+    },
+}
+
+#[derive(Subcommand)]
 enum Commands {
     /// Show usage analysis
     Usage {
@@ -204,6 +251,85 @@ enum Commands {
         #[command(subcommand)]
         sort_by: Option<ProjectSort>,
     },
+    /// Analyze conversation efficiency and costs
+    Conversations {
+        #[command(subcommand)]
+        sort_by: Option<ConversationSort>,
+        
+        /// Filter by project name
+        #[arg(long)]
+        project: Option<String>,
+        
+        /// Start date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+        
+        /// End date (YYYY-MM-DD)
+        #[arg(long)]
+        until: Option<String>,
+        
+        /// Filter by model
+        #[arg(long)]
+        model: Option<String>,
+        
+        /// Minimum cost threshold
+        #[arg(long)]
+        min_cost: Option<f64>,
+        
+        /// Maximum cost threshold
+        #[arg(long)]
+        max_cost: Option<f64>,
+        
+        /// Show only conversations with outliers/issues
+        #[arg(long)]
+        outliers_only: bool,
+        
+        /// Minimum efficiency score (0-100)
+        #[arg(long)]
+        min_efficiency: Option<f32>,
+        
+        /// Maximum efficiency score (0-100)
+        #[arg(long)]
+        max_efficiency: Option<f32>,
+        
+        /// Export to file (json or csv)
+        #[arg(long)]
+        export: Option<String>,
+    },
+    /// Model usage optimization recommendations
+    Optimize {
+        /// Filter by project name
+        #[arg(long)]
+        project: Option<String>,
+        
+        /// Start date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+        
+        /// End date (YYYY-MM-DD)
+        #[arg(long)]
+        until: Option<String>,
+        
+        /// Show only potential savings (no detailed recommendations)
+        #[arg(long)]
+        potential_savings: bool,
+        
+        /// Export format for recommendations
+        #[arg(long)]
+        export: Option<String>,
+        
+        /// Minimum confidence threshold (0.0-1.0)
+        #[arg(long)]
+        confidence_threshold: Option<f32>,
+        
+        /// Filter recommendations from this model
+        #[arg(long)]
+        model_from: Option<String>,
+        
+        /// Filter recommendations to this model
+        #[arg(long)]
+        model_to: Option<String>,
+    },
     /// Configuration management
     Config {
         #[command(subcommand)]
@@ -218,6 +344,11 @@ enum Commands {
     Import {
         #[command(subcommand)]
         action: ImportAction,
+    },
+    /// Manage usage alerts and notifications
+    Alerts {
+        #[command(subcommand)]
+        action: AlertAction,
     },
 }
 
@@ -426,6 +557,271 @@ fn handle_export_command(format: ExportFormat, json_output: bool) {
                         println!(r#"{{"status": "error", "message": "Failed to export CSV data: {}"}}"#, e);
                     } else {
                         eprintln!("Error: Failed to export CSV data: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+}
+
+fn handle_alerts_command(action: AlertAction, json_output: bool) {
+    use alerts::{AlertSystem, AlertThresholds};
+    
+    // Load configuration
+    let mut config = match Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to load config: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to load config: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    match action {
+        AlertAction::List => {
+            // Create alert system from config
+            let thresholds = AlertThresholds {
+                daily_spending_limit: config.alerts.daily_spending_limit,
+                weekly_spending_limit: config.alerts.weekly_spending_limit,
+                monthly_spending_limit: config.alerts.monthly_spending_limit,
+                daily_token_limit: config.alerts.daily_token_limit,
+                cache_hit_rate_threshold: config.alerts.cache_hit_rate_threshold,
+                opus_usage_threshold: config.alerts.opus_usage_threshold,
+                spending_spike_factor: config.alerts.spending_spike_factor,
+                enabled_alerts: config.alerts.enabled_alert_types.clone(),
+            };
+            
+            let alert_system = AlertSystem::new(thresholds, config.alerts.desktop_notifications);
+            let status_list = alert_system.get_alert_status();
+            
+            if json_output {
+                let json_output = serde_json::json!({
+                    "alerts_enabled": config.alerts.enabled,
+                    "desktop_notifications": config.alerts.desktop_notifications,
+                    "notification_support": AlertSystem::notifications_available(),
+                    "alert_status": status_list.iter().map(|s| serde_json::json!({
+                        "alert_type": s.alert_type,
+                        "enabled": s.enabled,
+                        "status": s.status_text(),
+                        "last_triggered": s.last_triggered,
+                        "can_trigger": s.can_trigger
+                    })).collect::<Vec<_>>(),
+                    "thresholds": {
+                        "daily_spending_limit": config.alerts.daily_spending_limit,
+                        "weekly_spending_limit": config.alerts.weekly_spending_limit,
+                        "monthly_spending_limit": config.alerts.monthly_spending_limit,
+                        "daily_token_limit": config.alerts.daily_token_limit,
+                        "cache_hit_rate_threshold": config.alerts.cache_hit_rate_threshold,
+                        "opus_usage_threshold": config.alerts.opus_usage_threshold,
+                        "spending_spike_factor": config.alerts.spending_spike_factor
+                    }
+                });
+                match serde_json::to_string_pretty(&json_output) {
+                    Ok(json) => println!("{}", json),
+                    Err(e) => {
+                        println!(r#"{{"status": "error", "message": "Failed to serialize alert status: {}"}}"#, e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                println!("Alert System Status:");
+                println!("  Alerts Enabled: {}", config.alerts.enabled);
+                println!("  Desktop Notifications: {}", config.alerts.desktop_notifications);
+                println!("  Notification Support: {}", AlertSystem::notifications_available());
+                println!();
+                
+                println!("Alert Types:");
+                for status in status_list {
+                    println!("  {}: {} ({})", 
+                        status.alert_type, 
+                        if status.enabled { "Enabled" } else { "Disabled" },
+                        status.status_text()
+                    );
+                }
+                
+                println!();
+                println!("Current Thresholds:");
+                if let Some(limit) = config.alerts.daily_spending_limit {
+                    println!("  Daily Spending Limit: ${:.2}", limit);
+                }
+                if let Some(limit) = config.alerts.weekly_spending_limit {
+                    println!("  Weekly Spending Limit: ${:.2}", limit);
+                }
+                if let Some(limit) = config.alerts.monthly_spending_limit {
+                    println!("  Monthly Spending Limit: ${:.2}", limit);
+                }
+                if let Some(limit) = config.alerts.daily_token_limit {
+                    println!("  Daily Token Limit: {}", format_number(limit));
+                }
+                if let Some(rate) = config.alerts.cache_hit_rate_threshold {
+                    println!("  Cache Hit Rate Threshold: {:.1}%", rate * 100.0);
+                }
+                if let Some(threshold) = config.alerts.opus_usage_threshold {
+                    println!("  Opus Usage Threshold: {} messages/day", threshold);
+                }
+                if let Some(factor) = config.alerts.spending_spike_factor {
+                    println!("  Spending Spike Factor: {:.1}x", factor);
+                }
+            }
+        },
+        AlertAction::Enable { alert_type, threshold } => {
+            // Validate alert type
+            let valid_types = [
+                "daily_spending", "weekly_spending", "monthly_spending", 
+                "daily_tokens", "opus_efficiency", "cache_rate", "spending_spike"
+            ];
+            if !valid_types.contains(&alert_type.as_str()) {
+                if json_output {
+                    println!(r#"{{"status": "error", "message": "Invalid alert type: {}. Valid types: {}"}}"#, 
+                        alert_type, valid_types.join(", "));
+                } else {
+                    eprintln!("Error: Invalid alert type: {}. Valid types: {}", 
+                        alert_type, valid_types.join(", "));
+                }
+                std::process::exit(1);
+            }
+            
+            // Enable the alert type
+            if !config.alerts.enabled_alert_types.contains(&alert_type) {
+                config.alerts.enabled_alert_types.push(alert_type.clone());
+            }
+            
+            // Set threshold if provided
+            if let Some(threshold_value) = threshold {
+                match alert_type.as_str() {
+                    "daily_spending" => config.alerts.daily_spending_limit = Some(threshold_value),
+                    "weekly_spending" => config.alerts.weekly_spending_limit = Some(threshold_value),
+                    "monthly_spending" => config.alerts.monthly_spending_limit = Some(threshold_value),
+                    "daily_tokens" => config.alerts.daily_token_limit = Some(threshold_value as u64),
+                    "cache_rate" => config.alerts.cache_hit_rate_threshold = Some(threshold_value as f32),
+                    "opus_efficiency" => config.alerts.opus_usage_threshold = Some(threshold_value as u32),
+                    "spending_spike" => config.alerts.spending_spike_factor = Some(threshold_value as f32),
+                    _ => {},
+                }
+            }
+            
+            // Save config
+            match config.save() {
+                Ok(()) => {
+                    if json_output {
+                        println!(r#"{{"status": "success", "message": "Alert type '{}' enabled"}}"#, alert_type);
+                    } else {
+                        println!("Alert type '{}' enabled", alert_type);
+                        if let Some(value) = threshold {
+                            println!("Threshold set to: {}", value);
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to save config: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to save config: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        },
+        AlertAction::Disable { alert_type } => {
+            // Remove from enabled alerts
+            config.alerts.enabled_alert_types.retain(|x| x != &alert_type);
+            
+            // Save config
+            match config.save() {
+                Ok(()) => {
+                    if json_output {
+                        println!(r#"{{"status": "success", "message": "Alert type '{}' disabled"}}"#, alert_type);
+                    } else {
+                        println!("Alert type '{}' disabled", alert_type);
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to save config: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to save config: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        },
+        AlertAction::Test => {
+            if !AlertSystem::notifications_available() {
+                if json_output {
+                    println!(r#"{{"status": "error", "message": "Desktop notifications are not available on this system"}}"#);
+                } else {
+                    eprintln!("Error: Desktop notifications are not available on this system");
+                }
+                std::process::exit(1);
+            }
+            
+            let alert_system = AlertSystem::new(AlertThresholds::default(), true);
+            match alert_system.test_notifications() {
+                Ok(()) => {
+                    if json_output {
+                        println!(r#"{{"status": "success", "message": "Test notification sent successfully"}}"#);
+                    } else {
+                        println!("Test notification sent successfully! Check your desktop for the notification.");
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to send test notification: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to send test notification: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        },
+        AlertAction::Set { threshold_type, value } => {
+            let config_key = match threshold_type.as_str() {
+                "daily_spending" => "alerts.daily_spending_limit",
+                "weekly_spending" => "alerts.weekly_spending_limit", 
+                "monthly_spending" => "alerts.monthly_spending_limit",
+                "daily_tokens" => "alerts.daily_token_limit",
+                "cache_hit_rate" => "alerts.cache_hit_rate_threshold",
+                "opus_usage" => "alerts.opus_usage_threshold",
+                "spending_spike_factor" => "alerts.spending_spike_factor",
+                _ => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Invalid threshold type: {}"}}"#, threshold_type);
+                    } else {
+                        eprintln!("Error: Invalid threshold type: {}", threshold_type);
+                    }
+                    std::process::exit(1);
+                }
+            };
+            
+            match config.set_value(config_key, &value.to_string()) {
+                Ok(()) => {
+                    match config.save() {
+                        Ok(()) => {
+                            if json_output {
+                                println!(r#"{{"status": "success", "message": "Threshold '{}' set to {}"}}"#, threshold_type, value);
+                            } else {
+                                println!("Threshold '{}' set to {}", threshold_type, value);
+                            }
+                        }
+                        Err(e) => {
+                            if json_output {
+                                println!(r#"{{"status": "error", "message": "Failed to save config: {}"}}"#, e);
+                            } else {
+                                eprintln!("Error: Failed to save config: {}", e);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Invalid threshold value: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Invalid threshold value: {}", e);
                     }
                     std::process::exit(1);
                 }
@@ -1446,7 +1842,7 @@ fn handle_daily_usage_command(
 
     for enhanced in &all_usage_data {
         let message = &enhanced.usage_data;
-        let project_name = &enhanced.project_name;
+        let _project_name = &enhanced.project_name;
 
         // Skip messages without usage data
         let usage = match &message.usage {
@@ -1642,6 +2038,864 @@ fn format_number(n: u64) -> String {
     result
 }
 
+fn handle_conversations_command(
+    sort_by: Option<ConversationSort>,
+    project: Option<String>,
+    since: Option<String>,
+    until: Option<String>,
+    model: Option<String>,
+    min_cost: Option<f64>,
+    max_cost: Option<f64>,
+    outliers_only: bool,
+    min_efficiency: Option<f32>,
+    max_efficiency: Option<f32>,
+    export: Option<String>,
+    target_currency: &str,
+    cache_ttl_hours: u32,
+    decimal_places: u8,
+    json_output: bool,
+    verbose: bool,
+    colored: bool,
+) {
+    // Initialize database and components
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Find and parse JSONL files - use config setting
+    let config_for_projects = match Config::load() {
+        Ok(config) => config,
+        Err(_) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+            } else {
+                eprintln!("Error: Failed to load config for projects path");
+            }
+            std::process::exit(1);
+        }
+    };
+    
+    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+        // Expand tilde to home directory
+        if let Some(home_dir) = dirs::home_dir() {
+            home_dir.join(&config_for_projects.general.claude_projects_path[2..])
+        } else {
+            PathBuf::from(&config_for_projects.general.claude_projects_path)
+        }
+    } else {
+        PathBuf::from(&config_for_projects.general.claude_projects_path)
+    };
+
+    let pricing_manager = PricingManager::with_database(database);
+    let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
+    let conversation_analyzer = ConversationAnalyzer::new();
+    let parser = JsonlParser::new(projects_dir.clone());
+    let mut dedup_engine = DeduplicationEngine::new();
+
+    if verbose && !json_output {
+        println!("Searching for JSONL files in: {}", projects_dir.display());
+    }
+
+    let jsonl_files = match parser.find_jsonl_files() {
+        Ok(files) => files,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to find JSONL files: {}", e);
+                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if jsonl_files.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "warning", "message": "No JSONL files found", "data": []}}"#);
+        } else {
+            println!("No Claude usage data found in {}", projects_dir.display());
+            println!("Make sure you have conversations saved in Claude Desktop or CLI.");
+        }
+        return;
+    }
+
+    if verbose && !json_output {
+        println!("Found {} JSONL files", jsonl_files.len());
+    }
+
+    // Parse all files with deduplication
+    let mut all_usage_data = Vec::new();
+    let mut files_processed = 0;
+    let mut total_messages = 0;
+    let mut unique_messages = 0;
+
+    for file_path in jsonl_files {
+        let project_name = match parser.extract_project_path(&file_path) {
+            Ok(project_path) => project_path.to_string_lossy().to_string(),
+            Err(_) => "Unknown".to_string(),
+        };
+
+        match parser.parse_file_with_verbose(&file_path, verbose) {
+            Ok(parsed_conversation) => {
+                total_messages += parsed_conversation.messages.len();
+                
+                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                    Ok(unique_data) => {
+                        unique_messages += unique_data.len();
+                        
+                        for data in unique_data {
+                            let enhanced_data = EnhancedUsageData {
+                                usage_data: data,
+                                project_name: project_name.clone(),
+                            };
+                            all_usage_data.push(enhanced_data);
+                        }
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                            } else {
+                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                            }
+                        }
+                        continue;
+                    }
+                }
+                
+                files_processed += 1;
+            }
+            Err(e) => {
+                if verbose {
+                    if json_output {
+                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                    } else {
+                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+
+    if verbose && !json_output {
+        println!("Processed {} files, {} total messages, {} unique messages", 
+                 files_processed, total_messages, unique_messages);
+    }
+
+    if all_usage_data.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No usage data found", "data": []}}"#);
+        } else {
+            println!("No usage data found in your Claude projects.");
+        }
+        return;
+    }
+
+    // Convert enhanced data to tuple format
+    let usage_tuples: Vec<(parser::jsonl::UsageData, String)> = all_usage_data
+        .into_iter()
+        .map(|enhanced| (enhanced.usage_data, enhanced.project_name))
+        .collect();
+
+    // Group into conversations
+    let conversations = match conversation_analyzer.group_into_conversations(usage_tuples) {
+        Ok(convs) => convs,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to group conversations: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to group conversations: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if conversations.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No conversations found", "data": []}}"#);
+        } else {
+            println!("No conversations found in your usage data.");
+        }
+        return;
+    }
+
+    // Analyze conversations
+    let mut insights = match conversation_analyzer.analyze_conversations(conversations) {
+        Ok(insights) => insights,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to analyze conversations: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to analyze conversations: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Create filter
+    let mut filter = ConversationFilter::default();
+    filter.project_name = project;
+    filter.model_name = model;
+    filter.min_cost = min_cost;
+    filter.max_cost = max_cost;
+    filter.outliers_only = outliers_only;
+    filter.min_efficiency = min_efficiency;
+    filter.max_efficiency = max_efficiency;
+
+    // Parse date filters
+    if let Some(since_str) = since {
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(&since_str, "%Y-%m-%d") {
+            filter.since = Some(Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap()));
+        }
+    }
+
+    if let Some(until_str) = until {
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(&until_str, "%Y-%m-%d") {
+            filter.until = Some(Utc.from_utc_datetime(&date.and_hms_opt(23, 59, 59).unwrap()));
+        }
+    }
+
+    // Apply filters
+    insights = conversation_analyzer.filter_conversations(insights, &filter);
+
+    if insights.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No conversations found matching filters", "data": []}}"#);
+        } else {
+            println!("No conversations found matching your filters.");
+        }
+        return;
+    }
+
+    // Sort conversations
+    let sort_method = match sort_by {
+        Some(ConversationSort::Cost) => ConversationSortBy::Cost,
+        Some(ConversationSort::Tokens) => ConversationSortBy::Tokens,
+        Some(ConversationSort::Efficiency) => ConversationSortBy::Efficiency,
+        Some(ConversationSort::Messages) => ConversationSortBy::Messages,
+        Some(ConversationSort::Duration) => ConversationSortBy::Duration,
+        Some(ConversationSort::StartTime) => ConversationSortBy::StartTime,
+        None => ConversationSortBy::Cost, // Default to cost
+    };
+
+    insights = conversation_analyzer.sort_conversations(insights, sort_method);
+
+    // Convert currencies if needed
+    if target_currency != "USD" {
+        if let Ok(db_clone) = get_database() {
+            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+            
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to create async runtime: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            };
+            
+            for insight in &mut insights {
+                match rt.block_on(currency_converter.convert_from_usd(insight.total_cost, target_currency)) {
+                    Ok(converted_cost) => {
+                        insight.total_cost = converted_cost;
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#, insight.conversation_id, e);
+                            } else {
+                                eprintln!("Warning: Failed to convert currency for {}: {}", insight.conversation_id, e);
+                            }
+                        }
+                    }
+                }
+
+                // Convert model-level costs too
+                for model_usage in insight.model_usage.values_mut() {
+                    match rt.block_on(currency_converter.convert_from_usd(model_usage.cost_usd, target_currency)) {
+                        Ok(converted_cost) => {
+                            model_usage.cost_usd = converted_cost;
+                        }
+                        Err(_) => {
+                            // Keep USD amount if conversion fails
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle export if specified
+    if let Some(export_format) = export {
+        handle_conversation_export(export_format, &insights, json_output);
+        return;
+    }
+
+    // Wrap in display wrapper
+    let insights_list = ConversationInsightList(insights);
+
+    // Display results
+    if json_output {
+        match insights_list.to_json() {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("{}", insights_list.to_table_with_currency_and_color(target_currency, decimal_places, colored));
+    }
+}
+
+fn handle_conversation_export(
+    export_format: String,
+    insights: &[ConversationInsight],
+    json_output: bool,
+) {
+    use std::fs::File;
+    use std::io::Write;
+
+    match export_format.to_lowercase().as_str() {
+        "json" => {
+            let output = format!("conversations_{}.json", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+            match serde_json::to_string_pretty(insights) {
+                Ok(json) => {
+                    match File::create(&output) {
+                        Ok(mut file) => {
+                            if let Err(e) = file.write_all(json.as_bytes()) {
+                                if json_output {
+                                    println!(r#"{{"status": "error", "message": "Failed to write JSON file: {}"}}"#, e);
+                                } else {
+                                    eprintln!("Error: Failed to write JSON file: {}", e);
+                                }
+                                std::process::exit(1);
+                            }
+                            if json_output {
+                                println!(r#"{{"status": "success", "message": "Exported {} conversations to {}", "count": {}}}"#, insights.len(), output, insights.len());
+                            } else {
+                                println!("Exported {} conversations to {}", insights.len(), output);
+                            }
+                        }
+                        Err(e) => {
+                            if json_output {
+                                println!(r#"{{"status": "error", "message": "Failed to create JSON file: {}"}}"#, e);
+                            } else {
+                                eprintln!("Error: Failed to create JSON file: {}", e);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to serialize conversations: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to serialize conversations: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+        "csv" => {
+            let output = format!("conversations_{}.csv", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+            match File::create(&output) {
+                Ok(mut file) => {
+                    // Write CSV header
+                    let header = "conversation_id,project_name,total_cost,message_count,total_input_tokens,total_output_tokens,efficiency_score,cache_hit_rate,duration_minutes,outlier_count\n";
+                    if let Err(e) = file.write_all(header.as_bytes()) {
+                        if json_output {
+                            println!(r#"{{"status": "error", "message": "Failed to write CSV header: {}"}}"#, e);
+                        } else {
+                            eprintln!("Error: Failed to write CSV header: {}", e);
+                        }
+                        std::process::exit(1);
+                    }
+
+                    // Write CSV rows
+                    for insight in insights {
+                        let row = format!(
+                            "{},{},{},{},{},{},{:.1},{:.3},{:.1},{}\n",
+                            insight.conversation_id,
+                            insight.project_name,
+                            insight.total_cost,
+                            insight.message_count,
+                            insight.total_input_tokens,
+                            insight.total_output_tokens,
+                            insight.efficiency_score,
+                            insight.cache_hit_rate,
+                            insight.duration_minutes,
+                            insight.outlier_flags.len()
+                        );
+                        if let Err(e) = file.write_all(row.as_bytes()) {
+                            if json_output {
+                                println!(r#"{{"status": "error", "message": "Failed to write CSV row: {}"}}"#, e);
+                            } else {
+                                eprintln!("Error: Failed to write CSV row: {}", e);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+
+                    if json_output {
+                        println!(r#"{{"status": "success", "message": "Exported {} conversations to {}", "count": {}}}"#, insights.len(), output, insights.len());
+                    } else {
+                        println!("Exported {} conversations to {}", insights.len(), output);
+                    }
+                }
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to create CSV file: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to create CSV file: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+        }
+        _ => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Unsupported export format. Use 'json' or 'csv'"}}"#);
+            } else {
+                eprintln!("Error: Unsupported export format. Use 'json' or 'csv'");
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
+fn handle_optimize_command(
+    project: Option<String>,
+    since: Option<String>,
+    until: Option<String>,
+    potential_savings: bool,
+    export: Option<String>,
+    confidence_threshold: Option<f32>,
+    model_from: Option<String>,
+    model_to: Option<String>,
+    target_currency: &str,
+    cache_ttl_hours: u32,
+    decimal_places: u8,
+    json_output: bool,
+    verbose: bool,
+    _colored: bool,
+) {
+    // Initialize database and components
+    let database = match get_database() {
+        Ok(db) => db,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to initialize database: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Find and parse JSONL files - use config setting
+    let config_for_projects = match Config::load() {
+        Ok(config) => config,
+        Err(_) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to load config for projects path"}}"#);
+            } else {
+                eprintln!("Error: Failed to load config for projects path");
+            }
+            std::process::exit(1);
+        }
+    };
+    
+    let projects_dir = if config_for_projects.general.claude_projects_path.starts_with("~/") {
+        // Expand tilde to home directory
+        if let Some(home_dir) = dirs::home_dir() {
+            home_dir.join(&config_for_projects.general.claude_projects_path[2..])
+        } else {
+            PathBuf::from(&config_for_projects.general.claude_projects_path)
+        }
+    } else {
+        PathBuf::from(&config_for_projects.general.claude_projects_path)
+    };
+
+    let pricing_manager = PricingManager::with_database(database);
+    let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
+    let parser = JsonlParser::new(projects_dir.clone());
+    let mut dedup_engine = DeduplicationEngine::new();
+    let optimization_engine = OptimizationEngine::new(pricing_manager);
+
+    if verbose && !json_output {
+        println!("Searching for JSONL files in: {}", projects_dir.display());
+    }
+
+    let jsonl_files = match parser.find_jsonl_files() {
+        Ok(files) => files,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to find JSONL files: {}", e);
+                eprintln!("Make sure you have Claude conversations in: {}", projects_dir.display());
+            }
+            std::process::exit(1);
+        }
+    };
+
+    if jsonl_files.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "warning", "message": "No JSONL files found", "data": []}}"#);
+        } else {
+            println!("No Claude usage data found in {}", projects_dir.display());
+            println!("Make sure you have conversations saved in Claude Desktop or CLI.");
+        }
+        return;
+    }
+
+    if verbose && !json_output {
+        println!("Found {} JSONL files", jsonl_files.len());
+    }
+
+    // Parse all files with deduplication
+    let mut all_usage_data = Vec::new();
+    let mut files_processed = 0;
+    let mut total_messages = 0;
+    let mut unique_messages = 0;
+
+    for file_path in jsonl_files {
+        // Extract project name from file path
+        let project_name = match parser.extract_project_path(&file_path) {
+            Ok(project_path) => project_path.to_string_lossy().to_string(),
+            Err(_) => "Unknown".to_string(),
+        };
+
+        // Apply project filter early if specified
+        if let Some(ref filter_project) = project {
+            if project_name != *filter_project {
+                continue;
+            }
+        }
+
+        match parser.parse_file_with_verbose(&file_path, verbose) {
+            Ok(parsed_conversation) => {
+                total_messages += parsed_conversation.messages.len();
+                
+                // Apply deduplication
+                match dedup_engine.filter_duplicates(parsed_conversation.messages) {
+                    Ok(unique_data) => {
+                        unique_messages += unique_data.len();
+                        
+                        // Create enhanced usage data with project name
+                        for data in unique_data {
+                            // Apply date filters if specified
+                            if let Some(timestamp_str) = &data.timestamp {
+                                if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
+                                    // Check since filter
+                                    if let Some(ref since_str) = since {
+                                        if let Ok(since_date) = chrono::NaiveDate::parse_from_str(since_str, "%Y-%m-%d") {
+                                            let since_datetime = chrono::Utc.from_utc_datetime(&since_date.and_hms_opt(0, 0, 0).unwrap());
+                                            if message_time < since_datetime {
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Check until filter
+                                    if let Some(ref until_str) = until {
+                                        if let Ok(until_date) = chrono::NaiveDate::parse_from_str(until_str, "%Y-%m-%d") {
+                                            let until_datetime = chrono::Utc.from_utc_datetime(&until_date.and_hms_opt(23, 59, 59).unwrap());
+                                            if message_time > until_datetime {
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            all_usage_data.push((data, project_name.clone()));
+                        }
+                    }
+                    Err(e) => {
+                        if verbose {
+                            if json_output {
+                                eprintln!(r#"{{"status": "warning", "message": "Failed to deduplicate file {}: {}"}}"#, file_path.display(), e);
+                            } else {
+                                eprintln!("Warning: Failed to deduplicate file {}: {}", file_path.display(), e);
+                            }
+                        }
+                        continue;
+                    }
+                }
+                
+                files_processed += 1;
+            }
+            Err(e) => {
+                if verbose {
+                    if json_output {
+                        eprintln!(r#"{{"status": "warning", "message": "Failed to parse file {}: {}"}}"#, file_path.display(), e);
+                    } else {
+                        eprintln!("Warning: Failed to parse file {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+
+    if verbose && !json_output {
+        println!("Processed {} files, {} total messages, {} unique messages", 
+                 files_processed, total_messages, unique_messages);
+    }
+
+    if all_usage_data.is_empty() {
+        if json_output {
+            println!(r#"{{"status": "success", "message": "No usage data found matching filters", "data": []}}"#);
+        } else {
+            println!("No usage data found matching your filters.");
+        }
+        return;
+    }
+
+    // Analyze optimization opportunities
+    let mut optimization_summary = match optimization_engine.analyze_optimization_opportunities(all_usage_data) {
+        Ok(summary) => summary,
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"status": "error", "message": "Failed to analyze optimization opportunities: {}"}}"#, e);
+            } else {
+                eprintln!("Error: Failed to analyze optimization opportunities: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Apply confidence threshold filter if specified
+    if let Some(min_confidence) = confidence_threshold {
+        optimization_summary = optimization_engine.filter_by_confidence(optimization_summary, min_confidence);
+    }
+
+    // Apply model transition filter if specified
+    if model_from.is_some() || model_to.is_some() {
+        optimization_summary = optimization_engine.filter_by_model_transition(optimization_summary, model_from, model_to);
+    }
+
+    // Convert currencies if needed
+    if target_currency != "USD" {
+        if let Ok(db_clone) = get_database() {
+            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+            
+            // Create an async runtime for currency conversion
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to create async runtime: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to create async runtime: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            };
+            
+            // Convert currency values in the summary
+            if let Ok(converted_current) = rt.block_on(currency_converter.convert_from_usd(optimization_summary.total_current_cost, target_currency)) {
+                optimization_summary.total_current_cost = converted_current;
+            }
+            if let Ok(converted_potential) = rt.block_on(currency_converter.convert_from_usd(optimization_summary.total_potential_cost, target_currency)) {
+                optimization_summary.total_potential_cost = converted_potential;
+            }
+            if let Ok(converted_savings) = rt.block_on(currency_converter.convert_from_usd(optimization_summary.total_potential_savings, target_currency)) {
+                optimization_summary.total_potential_savings = converted_savings;
+            }
+            
+            // Convert recommendation values
+            for recommendation in &mut optimization_summary.recommendations {
+                if let Ok(converted) = rt.block_on(currency_converter.convert_from_usd(recommendation.potential_savings, target_currency)) {
+                    recommendation.potential_savings = converted;
+                }
+                if let Ok(converted) = rt.block_on(currency_converter.convert_from_usd(recommendation.total_current_cost, target_currency)) {
+                    recommendation.total_current_cost = converted;
+                }
+                if let Ok(converted) = rt.block_on(currency_converter.convert_from_usd(recommendation.total_potential_cost, target_currency)) {
+                    recommendation.total_potential_cost = converted;
+                }
+            }
+        }
+    }
+
+    // Handle export if specified
+    if let Some(export_format) = export {
+        match export_format.to_lowercase().as_str() {
+            "json" => {
+                match serde_json::to_string_pretty(&optimization_summary) {
+                    Ok(json_str) => {
+                        let filename = format!("optimization_recommendations_{}.json", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+                        if let Err(e) = std::fs::write(&filename, json_str) {
+                            if json_output {
+                                println!(r#"{{"status": "error", "message": "Failed to write export file: {}"}}"#, e);
+                            } else {
+                                eprintln!("Error: Failed to write export file: {}", e);
+                            }
+                            std::process::exit(1);
+                        } else {
+                            if json_output {
+                                println!(r#"{{"status": "success", "message": "Exported to {}", "file": "{}"}}"#, filename, filename);
+                            } else {
+                                println!("Optimization recommendations exported to: {}", filename);
+                            }
+                            return;
+                        }
+                    }
+                    Err(e) => {
+                        if json_output {
+                            println!(r#"{{"status": "error", "message": "Failed to serialize recommendations: {}"}}"#, e);
+                        } else {
+                            eprintln!("Error: Failed to serialize recommendations: {}", e);
+                        }
+                        std::process::exit(1);
+                    }
+                }
+            }
+            "csv" => {
+                let mut csv_content = String::new();
+                csv_content.push_str("Current Model,Suggested Model,Confidence,Conversations,Current Cost,Potential Cost,Savings,Savings %,Reasoning\n");
+                
+                for rec in &optimization_summary.recommendations {
+                    csv_content.push_str(&format!(
+                        "{},{},{:.2},{},{:.2},{:.2},{:.2},{:.1}%,\"{}\"\n",
+                        rec.current_model,
+                        rec.suggested_model,
+                        rec.confidence_score,
+                        rec.conversation_count,
+                        rec.total_current_cost,
+                        rec.total_potential_cost,
+                        rec.potential_savings,
+                        rec.potential_savings_percentage,
+                        rec.reasoning.replace('"', "'")
+                    ));
+                }
+                
+                let filename = format!("optimization_recommendations_{}.csv", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+                if let Err(e) = std::fs::write(&filename, csv_content) {
+                    if json_output {
+                        println!(r#"{{"status": "error", "message": "Failed to write CSV file: {}"}}"#, e);
+                    } else {
+                        eprintln!("Error: Failed to write CSV file: {}", e);
+                    }
+                    std::process::exit(1);
+                } else {
+                    if json_output {
+                        println!(r#"{{"status": "success", "message": "Exported to {}", "file": "{}"}}"#, filename, filename);
+                    } else {
+                        println!("Optimization recommendations exported to: {}", filename);
+                    }
+                    return;
+                }
+            }
+            _ => {
+                if json_output {
+                    println!(r#"{{"status": "error", "message": "Unsupported export format. Use 'json' or 'csv'"}}"#);
+                } else {
+                    eprintln!("Error: Unsupported export format. Use 'json' or 'csv'");
+                }
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Display results
+    if json_output {
+        match serde_json::to_string_pretty(&optimization_summary) {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#, e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Show potential savings summary if requested
+        if potential_savings {
+            println!("Optimization Savings Summary:");
+            println!("  Total Conversations Analyzed: {}", optimization_summary.total_conversations_analyzed);
+            println!("  Current Total Cost: {}", models::currency::format_currency(optimization_summary.total_current_cost, target_currency, decimal_places));
+            println!("  Potential Total Cost: {}", models::currency::format_currency(optimization_summary.total_potential_cost, target_currency, decimal_places));
+            println!("  Total Potential Savings: {}", models::currency::format_currency(optimization_summary.total_potential_savings, target_currency, decimal_places));
+            println!("  Savings Percentage: {:.1}%", optimization_summary.savings_percentage);
+            
+            if !optimization_summary.optimization_opportunities.is_empty() {
+                println!("\nSavings by Current Model:");
+                let mut opportunities: Vec<_> = optimization_summary.optimization_opportunities.iter().collect();
+                opportunities.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+                
+                for (model, savings) in opportunities {
+                    println!("  {}: {}", model, models::currency::format_currency(*savings, target_currency, decimal_places));
+                }
+            }
+        } else {
+            // Show detailed recommendations
+            println!("Model Usage Optimization Analysis");
+            println!("================================");
+            println!();
+            
+            println!("Summary:");
+            println!("  Conversations Analyzed: {}", optimization_summary.total_conversations_analyzed);
+            println!("  Current Total Cost: {}", models::currency::format_currency(optimization_summary.total_current_cost, target_currency, decimal_places));
+            println!("  Potential Total Cost: {}", models::currency::format_currency(optimization_summary.total_potential_cost, target_currency, decimal_places));
+            println!("  Total Potential Savings: {}", models::currency::format_currency(optimization_summary.total_potential_savings, target_currency, decimal_places));
+            println!("  Savings Percentage: {:.1}%", optimization_summary.savings_percentage);
+            println!();
+            
+            if optimization_summary.recommendations.is_empty() {
+                println!("No optimization opportunities found with the current filters.");
+                println!("Your model usage appears to be well-optimized!");
+            } else {
+                println!("Optimization Recommendations:");
+                println!("============================");
+                
+                for (i, rec) in optimization_summary.recommendations.iter().enumerate() {
+                    println!();
+                    println!("{}. {} → {}", i + 1, rec.current_model, rec.suggested_model);
+                    println!("   Conversations: {}", rec.conversation_count);
+                    println!("   Confidence: {:.0}% ({:?})", rec.confidence_score * 100.0, rec.confidence_level);
+                    println!("   Current Cost: {}", models::currency::format_currency(rec.total_current_cost, target_currency, decimal_places));
+                    println!("   Potential Cost: {}", models::currency::format_currency(rec.total_potential_cost, target_currency, decimal_places));
+                    println!("   Savings: {} ({:.1}%)", 
+                             models::currency::format_currency(rec.potential_savings, target_currency, decimal_places),
+                             rec.potential_savings_percentage);
+                    println!("   Reasoning: {}", rec.reasoning);
+                }
+                
+                println!();
+                println!("Implementation Tips:");
+                println!("- Start with high-confidence recommendations");
+                println!("- Test suggested models on similar conversations");
+                println!("- Monitor quality vs. cost trade-offs");
+                println!("- Use 'ccost optimize --export csv' to save recommendations");
+            }
+        }
+        
+        // Show model distribution
+        if !optimization_summary.model_distribution.is_empty() && verbose {
+            println!();
+            println!("Current Model Distribution:");
+            let mut distribution: Vec<_> = optimization_summary.model_distribution.iter().collect();
+            distribution.sort_by(|a, b| b.1.cmp(a.1));
+            
+            for (model, count) in distribution {
+                println!("  {}: {} conversations", model, count);
+            }
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     
@@ -1696,6 +2950,66 @@ fn main() {
                 colored
             );
         }
+        Commands::Conversations {
+            sort_by,
+            project,
+            since,
+            until,
+            model,
+            min_cost,
+            max_cost,
+            outliers_only,
+            min_efficiency,
+            max_efficiency,
+            export,
+        } => {
+            handle_conversations_command(
+                sort_by,
+                project,
+                since,
+                until,
+                model,
+                min_cost,
+                max_cost,
+                outliers_only,
+                min_efficiency,
+                max_efficiency,
+                export,
+                target_currency,
+                config.currency.cache_ttl_hours,
+                config.output.decimal_places,
+                cli.json,
+                cli.verbose,
+                colored,
+            );
+        }
+        Commands::Optimize { 
+            project,
+            since,
+            until,
+            potential_savings,
+            export,
+            confidence_threshold,
+            model_from,
+            model_to,
+        } => {
+            handle_optimize_command(
+                project,
+                since,
+                until,
+                potential_savings,
+                export,
+                confidence_threshold,
+                model_from,
+                model_to,
+                target_currency,
+                config.currency.cache_ttl_hours,
+                config.output.decimal_places,
+                cli.json,
+                cli.verbose,
+                colored,
+            );
+        }
         Commands::Config { action } => {
             handle_config_action(action, cli.json);
         }
@@ -1704,6 +3018,9 @@ fn main() {
         }
         Commands::Import { action } => {
             handle_import_command(action, cli.json);
+        }
+        Commands::Alerts { action } => {
+            handle_alerts_command(action, cli.json);
         }
     }
 }
@@ -1905,6 +3222,45 @@ mod tests {
     fn test_invalid_command_fails() {
         let result = Cli::try_parse_from(["ccost", "invalid"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_optimize_command_options() {
+        let cli = Cli::try_parse_from([
+            "ccost", 
+            "optimize",
+            "--project", "transcribr",
+            "--since", "2025-06-01",
+            "--until", "2025-06-09",
+            "--confidence-threshold", "0.8",
+            "--model-from", "Opus",
+            "--model-to", "Sonnet",
+            "--potential-savings",
+            "--export", "csv"
+        ]).unwrap();
+        
+        match cli.command {
+            Commands::Optimize { 
+                project, 
+                since, 
+                until, 
+                potential_savings,
+                export,
+                confidence_threshold,
+                model_from,
+                model_to,
+            } => {
+                assert_eq!(project, Some("transcribr".to_string()));
+                assert_eq!(since, Some("2025-06-01".to_string()));
+                assert_eq!(until, Some("2025-06-09".to_string()));
+                assert!(potential_savings);
+                assert_eq!(export, Some("csv".to_string()));
+                assert_eq!(confidence_threshold, Some(0.8));
+                assert_eq!(model_from, Some("Opus".to_string()));
+                assert_eq!(model_to, Some("Sonnet".to_string()));
+            }
+            _ => panic!("Expected Optimize command"),
+        }
     }
 
     #[test]

@@ -500,7 +500,7 @@ pub fn format_currency(amount: f64, currency: &str, decimal_places: u8) -> Strin
 }
 
 /// Apply modern table styling similar to the design reference  
-fn apply_table_style(mut table: Table) -> String {
+fn apply_table_style(table: Table) -> String {
     apply_table_style_with_color(table, false, TableType::ProjectUsage)
 }
 
@@ -511,6 +511,7 @@ pub enum TableType {
     ModelUsage,   // Model, Input Tokens, Output Tokens, Cache Creation, Cache Read, Messages, Cost
     ProjectSummary, // Project, Total Tokens, Messages, Models, Total Cost
     DailyUsage,   // Date, Input Tokens, Output Tokens, Cache Creation, Cache Read, Messages, Projects, Total Cost
+    Conversations, // Conversation ID, Project, Messages, Total Cost, Efficiency, Models, Outliers, Duration
 }
 
 /// Strip ANSI escape codes from a string to get its visual length
@@ -573,6 +574,15 @@ pub fn apply_table_style_with_color(mut table: Table, colored: bool, table_type:
                 table.modify(Columns::single(5), Color::FG_YELLOW); // Messages
                 table.modify(Columns::single(6), Color::FG_CYAN);   // Projects
                 table.modify(Columns::last(), Color::FG_RED);       // Total Cost
+            }
+            TableType::Conversations => {
+                // Conversation ID, Project, Messages, Total Cost, Efficiency, Models, Outliers, Duration
+                table.modify(Columns::single(2), Color::FG_YELLOW); // Messages
+                table.modify(Columns::single(3), Color::FG_RED);    // Total Cost
+                table.modify(Columns::single(4), Color::FG_GREEN);  // Efficiency
+                table.modify(Columns::single(5), Color::FG_BLUE);   // Models
+                table.modify(Columns::single(6), Color::FG_MAGENTA); // Outliers
+                table.modify(Columns::single(7), Color::FG_CYAN);   // Duration
             }
         }
     } else {

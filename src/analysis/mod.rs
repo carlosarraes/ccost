@@ -3,11 +3,15 @@ pub mod usage;
 pub mod projects;
 pub mod timeline;
 pub mod timezone;
+pub mod optimization;
+pub mod conversations;
 
 // Re-export key types for easier access
 pub use usage::{UsageTracker, ProjectUsage, ModelUsage, UsageFilter, CostCalculationMode};
 pub use projects::{ProjectAnalyzer, ProjectSummary, ProjectSortBy, ProjectStatistics};
 pub use timezone::TimezoneCalculator;
+pub use optimization::{OptimizationEngine, OptimizationSummary, OptimizationRecommendation, ConfidenceLevel};
+pub use conversations::{ConversationAnalyzer, ConversationInsight, ConversationInsightList, ConversationFilter, ConversationSortBy, OptimizationTip, OutlierFlag};
 
 #[cfg(test)]
 mod integration_tests {

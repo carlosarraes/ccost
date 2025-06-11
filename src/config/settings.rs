@@ -11,6 +11,7 @@ pub struct Config {
     pub timezone: TimezoneConfig,
     pub cache: CacheConfig,
     pub sync: SyncConfig,
+    pub alerts: AlertConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +54,20 @@ pub struct SyncConfig {
     pub export_format: String, // "json" or "csv"
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertConfig {
+    pub enabled: bool,
+    pub desktop_notifications: bool,
+    pub daily_spending_limit: Option<f64>,
+    pub weekly_spending_limit: Option<f64>,
+    pub monthly_spending_limit: Option<f64>,
+    pub daily_token_limit: Option<u64>,
+    pub cache_hit_rate_threshold: Option<f32>,
+    pub opus_usage_threshold: Option<u32>,
+    pub spending_spike_factor: Option<f32>,
+    pub enabled_alert_types: Vec<String>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -82,6 +97,23 @@ impl Default for Config {
             sync: SyncConfig {
                 auto_export: false,
                 export_format: "json".to_string(),
+            },
+            alerts: AlertConfig {
+                enabled: true,
+                desktop_notifications: true,
+                daily_spending_limit: Some(10.0),
+                weekly_spending_limit: Some(50.0),
+                monthly_spending_limit: Some(200.0),
+                daily_token_limit: Some(1_000_000),
+                cache_hit_rate_threshold: Some(0.3),
+                opus_usage_threshold: Some(20),
+                spending_spike_factor: Some(3.0),
+                enabled_alert_types: vec![
+                    "daily_spending".to_string(),
+                    "opus_efficiency".to_string(),
+                    "cache_rate".to_string(),
+                    "spending_spike".to_string(),
+                ],
             },
         }
     }
@@ -184,6 +216,30 @@ impl Config {
             anyhow::bail!("Invalid decimal_places: must be 0-10");
         }
 
+        // Validate alert thresholds
+        if let Some(rate) = self.alerts.cache_hit_rate_threshold {
+            if rate < 0.0 || rate > 1.0 {
+                anyhow::bail!("Invalid cache_hit_rate_threshold: must be 0.0-1.0");
+            }
+        }
+
+        if let Some(factor) = self.alerts.spending_spike_factor {
+            if factor <= 1.0 {
+                anyhow::bail!("Invalid spending_spike_factor: must be greater than 1.0");
+            }
+        }
+
+        // Validate alert types
+        let valid_alert_types = [
+            "daily_spending", "weekly_spending", "monthly_spending",
+            "daily_tokens", "opus_efficiency", "cache_rate", "spending_spike"
+        ];
+        for alert_type in &self.alerts.enabled_alert_types {
+            if !valid_alert_types.contains(&alert_type.as_str()) {
+                anyhow::bail!("Invalid alert type: {}", alert_type);
+            }
+        }
+
         Ok(())
     }
 
@@ -230,6 +286,94 @@ impl Config {
                     anyhow::bail!("Invalid daily_cutoff_hour: must be 0-23");
                 }
                 self.timezone.daily_cutoff_hour = hour;
+            },
+            "alerts.enabled" => {
+                let enabled: bool = value.parse()
+                    .context("Invalid alerts.enabled: must be true or false")?;
+                self.alerts.enabled = enabled;
+            },
+            "alerts.desktop_notifications" => {
+                let enabled: bool = value.parse()
+                    .context("Invalid alerts.desktop_notifications: must be true or false")?;
+                self.alerts.desktop_notifications = enabled;
+            },
+            "alerts.daily_spending_limit" => {
+                if value.is_empty() || value == "none" {
+                    self.alerts.daily_spending_limit = None;
+                } else {
+                    let limit: f64 = value.parse()
+                        .context("Invalid alerts.daily_spending_limit: must be a number")?;
+                    if limit <= 0.0 {
+                        anyhow::bail!("Invalid alerts.daily_spending_limit: must be positive");
+                    }
+                    self.alerts.daily_spending_limit = Some(limit);
+                }
+            },
+            "alerts.weekly_spending_limit" => {
+                if value.is_empty() || value == "none" {
+                    self.alerts.weekly_spending_limit = None;
+                } else {
+                    let limit: f64 = value.parse()
+                        .context("Invalid alerts.weekly_spending_limit: must be a number")?;
+                    if limit <= 0.0 {
+                        anyhow::bail!("Invalid alerts.weekly_spending_limit: must be positive");
+                    }
+                    self.alerts.weekly_spending_limit = Some(limit);
+                }
+            },
+            "alerts.monthly_spending_limit" => {
+                if value.is_empty() || value == "none" {
+                    self.alerts.monthly_spending_limit = None;
+                } else {
+                    let limit: f64 = value.parse()
+                        .context("Invalid alerts.monthly_spending_limit: must be a number")?;
+                    if limit <= 0.0 {
+                        anyhow::bail!("Invalid alerts.monthly_spending_limit: must be positive");
+                    }
+                    self.alerts.monthly_spending_limit = Some(limit);
+                }
+            },
+            "alerts.daily_token_limit" => {
+                if value.is_empty() || value == "none" {
+                    self.alerts.daily_token_limit = None;
+                } else {
+                    let limit: u64 = value.parse()
+                        .context("Invalid alerts.daily_token_limit: must be a number")?;
+                    self.alerts.daily_token_limit = Some(limit);
+                }
+            },
+            "alerts.cache_hit_rate_threshold" => {
+                if value.is_empty() || value == "none" {
+                    self.alerts.cache_hit_rate_threshold = None;
+                } else {
+                    let rate: f32 = value.parse()
+                        .context("Invalid alerts.cache_hit_rate_threshold: must be a number")?;
+                    if rate < 0.0 || rate > 1.0 {
+                        anyhow::bail!("Invalid alerts.cache_hit_rate_threshold: must be 0.0-1.0");
+                    }
+                    self.alerts.cache_hit_rate_threshold = Some(rate);
+                }
+            },
+            "alerts.opus_usage_threshold" => {
+                if value.is_empty() || value == "none" {
+                    self.alerts.opus_usage_threshold = None;
+                } else {
+                    let threshold: u32 = value.parse()
+                        .context("Invalid alerts.opus_usage_threshold: must be a number")?;
+                    self.alerts.opus_usage_threshold = Some(threshold);
+                }
+            },
+            "alerts.spending_spike_factor" => {
+                if value.is_empty() || value == "none" {
+                    self.alerts.spending_spike_factor = None;
+                } else {
+                    let factor: f32 = value.parse()
+                        .context("Invalid alerts.spending_spike_factor: must be a number")?;
+                    if factor <= 1.0 {
+                        anyhow::bail!("Invalid alerts.spending_spike_factor: must be greater than 1.0");
+                    }
+                    self.alerts.spending_spike_factor = Some(factor);
+                }
             },
             _ => anyhow::bail!("Unknown configuration key: {}", key),
         }
@@ -330,10 +474,18 @@ mod tests {
         config.set_value("output.decimal_places", "4").unwrap();
         assert_eq!(config.output.decimal_places, 4);
         
+        config.set_value("alerts.daily_spending_limit", "25.0").unwrap();
+        assert_eq!(config.alerts.daily_spending_limit, Some(25.0));
+        
+        config.set_value("alerts.enabled", "false").unwrap();
+        assert_eq!(config.alerts.enabled, false);
+        
         // Test setting invalid values
         assert!(config.set_value("general.cost_mode", "invalid").is_err());
         assert!(config.set_value("currency.default_currency", "TOOLONG").is_err());
         assert!(config.set_value("output.decimal_places", "20").is_err());
+        assert!(config.set_value("alerts.daily_spending_limit", "-5.0").is_err());
+        assert!(config.set_value("alerts.cache_hit_rate_threshold", "1.5").is_err());
         assert!(config.set_value("unknown.key", "value").is_err());
     }
 
