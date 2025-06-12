@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use reqwest;
-use serde::Deserialize;
 use std::time::Duration;
 
 /// Stateless currency conversion manager with ECB API
@@ -8,31 +7,6 @@ pub struct CurrencyConverter {
     client: reqwest::Client,
 }
 
-/// ECB API response structure
-#[derive(Debug, Deserialize)]
-struct EcbResponse {
-    #[serde(rename = "Cube")]
-    cube: EcbCube,
-}
-
-#[derive(Debug, Deserialize)]
-struct EcbCube {
-    #[serde(rename = "Cube")]
-    cube: Vec<EcbDateCube>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EcbDateCube {
-    time: String,
-    #[serde(rename = "Cube")]
-    cube: Vec<EcbRateCube>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EcbRateCube {
-    currency: String,
-    rate: String,
-}
 
 impl CurrencyConverter {
     /// Create a new stateless currency converter

@@ -1,4 +1,3 @@
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -59,15 +58,6 @@ impl PricingManager {
     }
 
 
-    /// Load pricing data from the bundled JSON file
-    pub fn from_bundled_data() -> Result<Self> {
-        let pricing_json = include_str!("../../pricing/models.json");
-        let pricing_map: HashMap<String, ModelPricing> = serde_json::from_str(pricing_json)?;
-        
-        Ok(Self {
-            pricing_data: pricing_map,
-        })
-    }
 
 
     /// Get pricing for a specific model
@@ -84,23 +74,7 @@ impl PricingManager {
             })
     }
 
-    /// List all available models
-    pub fn list_models(&self) -> Result<Vec<String>> {
-        let mut sorted_models: Vec<String> = self.pricing_data.keys().cloned().collect();
-        sorted_models.sort();
-        Ok(sorted_models)
-    }
 
-    /// Add or update pricing for a model
-    pub fn set_pricing(&mut self, model_name: String, pricing: ModelPricing) -> Result<()> {
-        self.pricing_data.insert(model_name, pricing);
-        Ok(())
-    }
-
-    /// Delete pricing for a model
-    pub fn delete_pricing(&mut self, model_name: &str) -> Result<bool> {
-        Ok(self.pricing_data.remove(model_name).is_some())
-    }
 
     /// Calculate cost for usage data
     pub fn calculate_cost_for_model(&self, model_name: &str, input_tokens: u64, output_tokens: u64, cache_creation_tokens: u64, cache_read_tokens: u64) -> f64 {
