@@ -65,7 +65,11 @@ mod integration_tests {
             },
         ];
         
-        let usage = tracker_auto.process_usage_data(messages, "auto_test").unwrap();
+        let enhanced_data: Vec<(UsageData, String)> = messages.into_iter()
+            .map(|data| (data, "auto_test".to_string()))
+            .collect();
+        let usage_results = tracker_auto.calculate_usage_with_projects(enhanced_data, &crate::models::PricingManager::new()).unwrap();
+        let usage = &usage_results[0];
         
         // Should use embedded cost for first message, calculated cost for second
         assert_eq!(usage.total_cost_usd, 0.75); // 0.75 + 0.0 (calculated)
