@@ -162,7 +162,7 @@ impl ProjectSummaryRow {
 }
 
 impl DailyUsageRow {
-    pub fn from_daily_usage_with_currency(usage: &crate::DailyUsage, currency: &str, decimal_places: u8) -> Self {
+    pub fn from_daily_usage_with_currency(usage: &crate::analysis::DailyUsage, currency: &str, decimal_places: u8) -> Self {
         Self {
             date: usage.date.clone(),
             input_tokens: format_number(usage.total_input_tokens),

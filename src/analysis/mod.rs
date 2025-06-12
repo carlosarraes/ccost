@@ -13,6 +13,96 @@ pub use timezone::TimezoneCalculator;
 pub use optimization::OptimizationEngine;
 pub use conversations::{ConversationAnalyzer, ConversationInsight, ConversationInsightList, ConversationFilter, ConversationSortBy};
 
+
+use crate::output::OutputFormat;
+use serde::Serialize;
+
+// Daily usage analysis structures
+#[derive(Debug, Clone, Serialize)]
+pub struct DailyUsage {
+    pub date: String,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_cost_usd: f64,
+    pub message_count: u64,
+    pub projects_count: usize,
+}
+
+// Wrapper for daily usage vector to implement OutputFormat
+#[derive(Debug, Clone, Serialize)]
+pub struct DailyUsageList(pub Vec<DailyUsage>);
+
+impl OutputFormat for DailyUsageList {
+    fn to_table(&self) -> String {
+        self.to_table_with_currency_and_color("USD", 2, false)
+    }
+
+    fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(&self.0)
+    }
+
+    fn to_table_with_currency(&self, currency: &str, decimal_places: u8) -> String {
+        self.to_table_with_currency_and_color(currency, decimal_places, false)
+    }
+
+    fn to_table_with_currency_and_color(
+        &self,
+        currency: &str,
+        decimal_places: u8,
+        colored: bool,
+    ) -> String {
+        if self.0.is_empty() {
+            return "No daily usage data found.".to_string();
+        }
+
+        // Convert to DailyUsageRow using the proper tabled infrastructure
+        let mut rows: Vec<crate::output::DailyUsageRow> = self
+            .0
+            .iter()
+            .map(|usage| {
+                crate::output::DailyUsageRow::from_daily_usage_with_currency(
+                    usage,
+                    currency,
+                    decimal_places,
+                )
+            })
+            .collect();
+
+        // Calculate totals for summary row
+        let total_input: u64 = self.0.iter().map(|d| d.total_input_tokens).sum();
+        let total_output: u64 = self.0.iter().map(|d| d.total_output_tokens).sum();
+        let total_cache_creation: u64 = self.0.iter().map(|d| d.total_cache_creation_tokens).sum();
+        let total_cache_read: u64 = self.0.iter().map(|d| d.total_cache_read_tokens).sum();
+        let total_messages: u64 = self.0.iter().map(|d| d.message_count).sum();
+        let total_cost: f64 = self.0.iter().map(|d| d.total_cost_usd).sum();
+        let total_projects: usize = self.0.iter().map(|d| d.projects_count).sum();
+
+        // Add totals row
+        rows.push(crate::output::DailyUsageRow {
+            date: "TOTAL".to_string(),
+            input_tokens: crate::output::table::format_number(total_input),
+            output_tokens: crate::output::table::format_number(total_output),
+            cache_creation: crate::output::table::format_number(total_cache_creation),
+            cache_read: crate::output::table::format_number(total_cache_read),
+            messages: crate::output::table::format_number(total_messages),
+            projects: total_projects.to_string(),
+            total_cost: crate::models::currency::format_currency(
+                total_cost,
+                currency,
+                decimal_places,
+            ),
+        });
+
+        crate::output::table::apply_table_style_with_color(
+            tabled::Table::new(rows),
+            colored,
+            crate::output::table::TableType::DailyUsage,
+        )
+    }
+}
+
 #[cfg(test)]
 mod integration_tests {
     use super::*;
