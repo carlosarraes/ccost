@@ -873,6 +873,7 @@ fn render_help_popup_static(f: &mut Frame) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
 
     #[test]
     fn test_dashboard_state_creation() {

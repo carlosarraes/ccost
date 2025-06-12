@@ -139,7 +139,7 @@ impl TimezoneCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Weekday;
+    use chrono::{Weekday, NaiveTime, Timelike};
 
     #[test]
     fn test_utc_timezone_calculator() {

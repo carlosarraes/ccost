@@ -623,10 +623,12 @@ mod tests {
             timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid: Some("test-uuid".to_string()),
             request_id: Some("req-1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: Some(Message {
+                id: None,
+                content: Some(content.to_string()),
                 model: Some(model.to_string()),
                 role: Some("user".to_string()),
-                content: Some(content.to_string()),
                 usage: None,
             }),
             usage: Some(Usage {

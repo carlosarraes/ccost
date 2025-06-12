@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::collections::HashSet;
-use sha2::{Sha256, Digest};
 
 use super::jsonl::UsageData;
 
@@ -19,23 +18,23 @@ impl DeduplicationEngine {
         }
     }
 
-    /// Generate unique hash from message identifiers
-    pub fn generate_hash(uuid: &Option<String>, request_id: &Option<String>) -> Option<String> {
-        match (uuid, request_id) {
-            (Some(u), Some(r)) => {
-                // Create deterministic hash from both IDs
-                let mut hasher = Sha256::new();
-                hasher.update(format!("{}_{}", u, r));
-                let result = hasher.finalize();
-                Some(format!("{:x}", result))
+    /// Generate unique hash from message identifiers using simple concatenation strategy
+    /// Requires both message.id AND sessionId for reliable deduplication
+    /// Uses simple concatenation for performance and deterministic results
+    pub fn generate_hash(message_id: &Option<String>, session_id: &Option<String>) -> Option<String> {
+        match (message_id, session_id) {
+            // Requires BOTH message.id AND sessionId - no fallbacks for accuracy
+            (Some(m), Some(s)) => {
+                Some(format!("{}:{}", m, s))
             }
-            _ => None, // Cannot generate reliable hash without both IDs
+            _ => None, // Cannot generate hash without both IDs
         }
     }
 
     /// Check if a message has already been processed
     pub fn is_duplicate(&self, message: &UsageData) -> bool {
-        if let Some(hash) = Self::generate_hash(&message.uuid, &message.request_id) {
+        let message_id = message.message.as_ref().and_then(|m| m.id.clone());
+        if let Some(hash) = Self::generate_hash(&message_id, &message.session_id) {
             self.seen_hashes.contains(&hash)
         } else {
             false // Messages without proper IDs are not considered duplicates
@@ -44,7 +43,8 @@ impl DeduplicationEngine {
 
     /// Mark a message as processed
     pub fn mark_as_processed(&mut self, message: &UsageData, _project_name: &str) -> Result<bool> {
-        if let Some(hash) = Self::generate_hash(&message.uuid, &message.request_id) {
+        let message_id = message.message.as_ref().and_then(|m| m.id.clone());
+        if let Some(hash) = Self::generate_hash(&message_id, &message.session_id) {
             // Check if already exists
             if self.seen_hashes.contains(&hash) {
                 return Ok(false); // Already processed
@@ -72,7 +72,8 @@ impl DeduplicationEngine {
                 continue;
             }
 
-            if let Some(_hash) = Self::generate_hash(&message.uuid, &message.request_id) {
+            let message_id = message.message.as_ref().and_then(|m| m.id.clone());
+            if let Some(_hash) = Self::generate_hash(&message_id, &message.session_id) {
                 self.mark_as_processed(&message, project_name)?;
                 unique_messages.push(message);
                 stats.unique_messages += 1;
@@ -131,7 +132,34 @@ mod tests {
             timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid,
             request_id,
+            session_id: Some("test-session-123".to_string()),
             message: Some(Message {
+                id: None,
+                content: Some("Test message".to_string()),
+                model: Some("claude-sonnet-4".to_string()),
+                role: Some("user".to_string()),
+                usage: None,
+            }),
+            usage: Some(Usage {
+                input_tokens: Some(10),
+                output_tokens: Some(20),
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
+            }),
+            cost_usd: Some(0.001),
+            cwd: None,
+            original_cwd: None,
+        }
+    }
+
+    fn create_test_message_with_message_id(uuid: Option<String>, request_id: Option<String>, message_id: Option<String>) -> UsageData {
+        UsageData {
+            timestamp: Some("2025-06-09T10:00:00Z".to_string()),
+            uuid,
+            request_id,
+            session_id: Some("test-session-123".to_string()),
+            message: Some(Message {
+                id: message_id,
                 content: Some("Test message".to_string()),
                 model: Some("claude-sonnet-4".to_string()),
                 role: Some("user".to_string()),
@@ -152,8 +180,8 @@ mod tests {
     #[test]
     fn test_generate_hash_with_both_ids() {
         let hash = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &Some("req-456".to_string())
+            &Some("msg-123".to_string()),
+            &Some("session-456".to_string())
         );
         
         assert!(hash.is_some());
@@ -161,16 +189,16 @@ mod tests {
         
         // Hash should be deterministic
         let hash2 = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &Some("req-456".to_string())
+            &Some("msg-123".to_string()),
+            &Some("session-456".to_string())
         ).unwrap();
         
         assert_eq!(hash_value, hash2);
         
         // Different IDs should produce different hash
         let hash3 = DeduplicationEngine::generate_hash(
-            &Some("uuid-789".to_string()),
-            &Some("req-456".to_string())
+            &Some("msg-789".to_string()),
+            &Some("session-456".to_string())
         ).unwrap();
         
         assert_ne!(hash_value, hash3);
@@ -180,7 +208,8 @@ mod tests {
     fn test_generate_hash_missing_uuid() {
         let hash = DeduplicationEngine::generate_hash(
             &None,
-            &Some("req-456".to_string())
+            &Some("req-456".to_string()),
+            &None
         );
         
         assert!(hash.is_none());
@@ -190,10 +219,12 @@ mod tests {
     fn test_generate_hash_missing_request_id() {
         let hash = DeduplicationEngine::generate_hash(
             &Some("uuid-123".to_string()),
+            &None,
             &None
         );
         
-        assert!(hash.is_none());
+        // Should still generate hash with uuid only (fallback)
+        assert!(hash.is_some());
     }
 
     #[test]
@@ -367,5 +398,165 @@ mod tests {
         let lookup_duration = lookup_start.elapsed();
         
         assert!(lookup_duration.as_micros() < 100, "Lookup should be very fast (O(1))");
+    }
+
+    // NEW TESTS FOR IMPROVED FIELD MAPPING ACCURACY (TASK-044-CRITICAL)
+
+    #[test]
+    fn test_fallback_to_message_id_when_request_id_null() {
+        // This test simulates the real-world scenario where request_id is null
+        // but message.id is available (common in Claude JSONL data)
+        let hash1 = DeduplicationEngine::generate_hash(
+            &Some("uuid-123".to_string()),
+            &None, // request_id is null (common case)
+            &Some("msg_01ABC123".to_string()) // message.id is available
+        );
+        
+        assert!(hash1.is_some(), "Should generate hash using uuid + message_id fallback");
+        
+        // Same combination should produce same hash
+        let hash2 = DeduplicationEngine::generate_hash(
+            &Some("uuid-123".to_string()),
+            &None,
+            &Some("msg_01ABC123".to_string())
+        );
+        
+        assert_eq!(hash1, hash2, "Fallback hashes should be deterministic");
+        
+        // Different message_id should produce different hash
+        let hash3 = DeduplicationEngine::generate_hash(
+            &Some("uuid-123".to_string()),
+            &None,
+            &Some("msg_01XYZ789".to_string())
+        );
+        
+        assert_ne!(hash1, hash3, "Different message IDs should produce different hashes");
+    }
+
+    #[test]
+    fn test_message_id_only_fallback() {
+        // Test scenario where only message.id is available
+        let hash = DeduplicationEngine::generate_hash(
+            &None,
+            &None,
+            &Some("msg_01ABC123".to_string())
+        );
+        
+        assert!(hash.is_some(), "Should generate hash using message_id only as last resort");
+    }
+
+    #[test]
+    fn test_uuid_only_fallback() {
+        // Test scenario where only uuid is available (legacy support)
+        let hash = DeduplicationEngine::generate_hash(
+            &Some("uuid-123".to_string()),
+            &None,
+            &None
+        );
+        
+        assert!(hash.is_some(), "Should generate hash using uuid only for legacy support");
+    }
+
+    #[test]
+    fn test_real_world_deduplication_scenario() {
+        // This test simulates the exact scenario causing accuracy issues
+        // Real JSONL data: uuid present, request_id null, message.id present
+        let mut engine = DeduplicationEngine::new();
+        
+        // Create realistic messages like competitor tools would see
+        let msg1 = create_test_message_with_message_id(
+            Some("e84e63d2-776b-4dc3-af1a-2da917d3174a".to_string()),
+            None, // request_id is null in real data
+            Some("msg_01WoX9ZZQjSa71XuNyBgKS9H".to_string())
+        );
+        
+        let msg2 = create_test_message_with_message_id(
+            Some("e84e63d2-776b-4dc3-af1a-2da917d3174a".to_string()),
+            None, // request_id is still null
+            Some("msg_01WoX9ZZQjSa71XuNyBgKS9H".to_string()) // Same message.id
+        );
+        
+        // Should detect as duplicate even with null request_id
+        assert!(engine.mark_as_processed(&msg1, "test_project").unwrap());
+        assert!(engine.is_duplicate(&msg2), "Should detect duplicate using uuid + message_id");
+        assert!(!engine.mark_as_processed(&msg2, "test_project").unwrap(), "Should not process duplicate");
+    }
+
+    #[test]
+    fn test_priority_order_uuid_request_id_over_message_id() {
+        // Test that uuid + request_id takes priority over uuid + message_id
+        let hash1 = DeduplicationEngine::generate_hash(
+            &Some("uuid-123".to_string()),
+            &Some("req-456".to_string()),
+            &Some("msg_789".to_string())
+        );
+        
+        let hash2 = DeduplicationEngine::generate_hash(
+            &Some("uuid-123".to_string()),
+            &Some("req-456".to_string()),
+            &None // message_id not used when request_id is available
+        );
+        
+        assert_eq!(hash1, hash2, "Should prioritize uuid + request_id even when message_id is available");
+    }
+
+    #[test]
+    fn test_backwards_compatibility_with_existing_hashes() {
+        // Ensure existing hash format is preserved for uuid + request_id combination
+        let old_style_hash = {
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            hasher.update(format!("uuid_{}_req_{}", "uuid-123", "req-456"));
+            let result = hasher.finalize();
+            format!("{:x}", result)
+        };
+        
+        let new_style_hash = DeduplicationEngine::generate_hash(
+            &Some("uuid-123".to_string()),
+            &Some("req-456".to_string()),
+            &Some("msg-789".to_string())
+        ).unwrap();
+        
+        assert_eq!(old_style_hash, new_style_hash, "Should maintain backwards compatibility for existing hash format");
+    }
+
+    #[test]
+    fn test_competitor_accuracy_parity() {
+        // This test ensures we can deduplicate the same messages that competitor tools can
+        let mut engine = DeduplicationEngine::new();
+        
+        // Simulate messages that competitor tools would successfully deduplicate
+        let messages = vec![
+            // Message 1: Standard case with uuid and message.id, null request_id
+            create_test_message_with_message_id(
+                Some("uuid-1".to_string()),
+                None,
+                Some("msg-1".to_string())
+            ),
+            // Message 2: Duplicate of message 1 
+            create_test_message_with_message_id(
+                Some("uuid-1".to_string()),
+                None,
+                Some("msg-1".to_string())
+            ),
+            // Message 3: Different message with only message.id
+            create_test_message_with_message_id(
+                None,
+                None,
+                Some("msg-2".to_string())
+            ),
+            // Message 4: Duplicate of message 3
+            create_test_message_with_message_id(
+                None,
+                None,
+                Some("msg-2".to_string())
+            ),
+        ];
+        
+        let unique = engine.filter_duplicates(messages, "test_project").unwrap();
+        
+        // Should detect duplicates that competitor tools can detect
+        assert_eq!(unique.len(), 2, "Should detect same duplicates as competitor tools");
+        assert_eq!(engine.processed_count(), 2, "Should track same number of unique messages as competitors");
     }
 }

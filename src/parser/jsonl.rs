@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 pub struct Message {
+    pub id: Option<String>,
     #[serde(deserialize_with = "deserialize_content")]
     pub content: Option<String>,
     pub model: Option<String>,
@@ -82,6 +83,8 @@ pub struct UsageData {
     pub uuid: Option<String>,
     #[serde(rename = "requestId")]
     pub request_id: Option<String>,
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
     pub message: Option<Message>,
     pub usage: Option<Usage>,
     #[serde(rename = "costUSD")]
@@ -209,7 +212,16 @@ impl JsonlParser {
         }
         // If timestamp is None, we'll continue processing - it's now optional
 
-        // For deduplication purposes, we prefer both uuid and request_id
+        // Filter out synthetic model entries
+        if let Some(ref message) = usage_data.message {
+            if let Some(ref model) = message.model {
+                if model == "<synthetic>" {
+                    return Ok(None); // Skip synthetic entries
+                }
+            }
+        }
+
+        // For deduplication purposes, we prefer both uuid and request_id/session_id
         // Note: Missing UUIDs/requestIds will be handled by deduplication engine
         // Warnings will be shown only in verbose mode
 
