@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::storage::sqlite::Database;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPricing {
@@ -33,7 +32,6 @@ impl ModelPricing {
 #[derive(Debug)]
 pub struct PricingManager {
     pricing_data: HashMap<String, ModelPricing>,
-    database: Option<Database>,
 }
 
 impl PricingManager {
@@ -57,16 +55,9 @@ impl PricingManager {
         
         Self { 
             pricing_data,
-            database: None,
         }
     }
 
-    /// Create new pricing manager with database support
-    pub fn with_database(database: Database) -> Self {
-        let mut manager = Self::new();
-        manager.database = Some(database);
-        manager
-    }
 
     /// Load pricing data from the bundled JSON file
     pub fn from_bundled_data() -> Result<Self> {
@@ -75,31 +66,12 @@ impl PricingManager {
         
         Ok(Self {
             pricing_data: pricing_map,
-            database: None,
         })
     }
 
-    /// Load pricing data from the bundled JSON file with database support
-    pub fn from_bundled_data_with_database(database: Database) -> Result<Self> {
-        let pricing_json = include_str!("../../pricing/models.json");
-        let pricing_map: HashMap<String, ModelPricing> = serde_json::from_str(pricing_json)?;
-        
-        Ok(Self {
-            pricing_data: pricing_map,
-            database: Some(database),
-        })
-    }
 
-    /// Get pricing for a specific model (database first, then memory)
+    /// Get pricing for a specific model
     pub fn get_pricing(&self, model_name: &str) -> Option<ModelPricing> {
-        // Check database first if available
-        if let Some(ref db) = self.database {
-            if let Ok(Some(pricing)) = db.get_model_pricing(model_name) {
-                return Some(pricing);
-            }
-        }
-        
-        // Fall back to in-memory pricing
         self.pricing_data.get(model_name).cloned()
     }
 
@@ -112,55 +84,22 @@ impl PricingManager {
             })
     }
 
-    /// List all available models (database + memory)
+    /// List all available models
     pub fn list_models(&self) -> Result<Vec<String>> {
-        let mut models = std::collections::HashSet::new();
-        
-        // Add models from database if available
-        if let Some(ref db) = self.database {
-            let db_pricing = db.list_model_pricing()?;
-            for (model_name, _) in db_pricing {
-                models.insert(model_name);
-            }
-        }
-        
-        // Add models from memory
-        for model_name in self.pricing_data.keys() {
-            models.insert(model_name.clone());
-        }
-        
-        let mut sorted_models: Vec<String> = models.into_iter().collect();
+        let mut sorted_models: Vec<String> = self.pricing_data.keys().cloned().collect();
         sorted_models.sort();
         Ok(sorted_models)
     }
 
     /// Add or update pricing for a model
     pub fn set_pricing(&mut self, model_name: String, pricing: ModelPricing) -> Result<()> {
-        // Save to database if available
-        if let Some(ref db) = self.database {
-            db.save_model_pricing(&model_name, &pricing)?;
-        }
-        
-        // Also update in-memory cache
         self.pricing_data.insert(model_name, pricing);
         Ok(())
     }
 
     /// Delete pricing for a model
     pub fn delete_pricing(&mut self, model_name: &str) -> Result<bool> {
-        let mut deleted = false;
-        
-        // Delete from database if available
-        if let Some(ref db) = self.database {
-            deleted = db.delete_model_pricing(model_name)?;
-        }
-        
-        // Also remove from in-memory cache
-        if self.pricing_data.remove(model_name).is_some() {
-            deleted = true;
-        }
-        
-        Ok(deleted)
+        Ok(self.pricing_data.remove(model_name).is_some())
     }
 
     /// Calculate cost for usage data
@@ -275,50 +214,6 @@ mod tests {
         assert!((cost - expected).abs() < 0.001, "Expected {}, got {}", expected, cost);
     }
 
-    #[test]
-    fn test_pricing_manager_with_database() {
-        use crate::storage::sqlite::Database;
-        use tempfile::TempDir;
-        
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let database = Database::new(&db_path).unwrap();
-        
-        let mut manager = PricingManager::with_database(database);
-        let custom_pricing = ModelPricing::new(10.0, 50.0, 1.0);
-        
-        // Set pricing (should save to database)
-        manager.set_pricing("test-model".to_string(), custom_pricing.clone()).expect("Should set pricing");
-        
-        // Get pricing (should read from database)
-        let retrieved = manager.get_pricing("test-model").expect("Should have pricing");
-        assert!((retrieved.input_cost_per_mtok - 10.0).abs() < 0.001);
-        assert!((retrieved.output_cost_per_mtok - 50.0).abs() < 0.001);
-        assert!((retrieved.cache_cost_per_mtok - 1.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_pricing_manager_database_priority() {
-        use crate::storage::sqlite::Database;
-        use tempfile::TempDir;
-        
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let database = Database::new(&db_path).unwrap();
-        
-        // Save pricing directly to database
-        let db_pricing = ModelPricing::new(100.0, 200.0, 10.0);
-        database.save_model_pricing("claude-sonnet-4-20250514", &db_pricing).unwrap();
-        
-        // Create manager with database
-        let manager = PricingManager::with_database(database);
-        
-        // Should get database pricing, not in-memory default
-        let retrieved = manager.get_pricing("claude-sonnet-4-20250514").expect("Should have pricing");
-        assert!((retrieved.input_cost_per_mtok - 100.0).abs() < 0.001);
-        assert!((retrieved.output_cost_per_mtok - 200.0).abs() < 0.001);
-        assert!((retrieved.cache_cost_per_mtok - 10.0).abs() < 0.001);
-    }
 
     #[test]
     fn test_pricing_manager_delete_pricing() {
@@ -335,30 +230,4 @@ mod tests {
         assert!(manager.get_pricing("delete-test").is_none());
     }
 
-    #[test]
-    fn test_pricing_manager_list_models_with_database() {
-        use crate::storage::sqlite::Database;
-        use tempfile::TempDir;
-        
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let database = Database::new(&db_path).unwrap();
-        
-        // Add pricing to database
-        database.save_model_pricing("db-model-1", &ModelPricing::new(1.0, 2.0, 0.1)).unwrap();
-        database.save_model_pricing("db-model-2", &ModelPricing::new(3.0, 4.0, 0.2)).unwrap();
-        
-        let mut manager = PricingManager::with_database(database);
-        
-        // Add in-memory model
-        manager.set_pricing("memory-model".to_string(), ModelPricing::new(5.0, 6.0, 0.3)).expect("Should set pricing");
-        
-        let models = manager.list_models().expect("Should list models");
-        
-        // Should include both database and in-memory models
-        assert!(models.contains(&"db-model-1".to_string()));
-        assert!(models.contains(&"db-model-2".to_string()));
-        assert!(models.contains(&"memory-model".to_string()));
-        assert!(models.contains(&"claude-sonnet-4-20250514".to_string()));
-    }
 }

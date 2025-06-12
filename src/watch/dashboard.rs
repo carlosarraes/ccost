@@ -1,6 +1,6 @@
 // Real-time dashboard for watch mode using ratatui
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,

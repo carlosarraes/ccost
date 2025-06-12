@@ -2,4 +2,4 @@
 pub mod pricing;
 pub mod currency;
 
-pub use pricing::{ModelPricing, PricingManager};
+pub use pricing::PricingManager;

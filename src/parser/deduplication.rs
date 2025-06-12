@@ -1,7 +1,5 @@
 use anyhow::Result;
-use rusqlite::{Connection, params};
 use std::collections::HashSet;
-use std::path::Path;
 use sha2::{Sha256, Digest};
 
 use super::jsonl::UsageData;
@@ -11,49 +9,14 @@ use super::jsonl::UsageData;
 pub struct DeduplicationEngine {
     /// In-memory cache for fast O(1) lookups
     seen_hashes: HashSet<String>,
-    /// SQLite connection for persistent storage
-    connection: Option<Connection>,
 }
 
 impl DeduplicationEngine {
-    /// Create a new deduplication engine with optional SQLite persistence
+    /// Create a new in-memory deduplication engine
     pub fn new() -> Self {
         Self {
             seen_hashes: HashSet::new(),
-            connection: None,
         }
-    }
-
-    /// Initialize with SQLite database for persistence
-    pub fn with_database(db_path: &Path) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
-        
-        // Note: We'll use the main database schema (message_hash, project_name, session_id, processed_at)
-        // The table is created by migrations, so we don't need to create it here
-
-        let mut engine = Self {
-            seen_hashes: HashSet::new(),
-            connection: Some(conn),
-        };
-
-        // Load existing hashes into memory
-        engine.load_existing_hashes()?;
-        
-        Ok(engine)
-    }
-
-    /// Load existing hashes from database into memory for fast lookups
-    fn load_existing_hashes(&mut self) -> Result<()> {
-        if let Some(conn) = &self.connection {
-            let mut stmt = conn.prepare("SELECT message_hash FROM processed_messages")?;
-            let hash_iter = stmt.query_map([], |row| row.get(0))?;
-
-            for hash_result in hash_iter {
-                let hash: String = hash_result?;
-                self.seen_hashes.insert(hash);
-            }
-        }
-        Ok(())
     }
 
     /// Generate unique hash from message identifiers
@@ -80,7 +43,7 @@ impl DeduplicationEngine {
     }
 
     /// Mark a message as processed
-    pub fn mark_as_processed(&mut self, message: &UsageData, project_name: &str) -> Result<bool> {
+    pub fn mark_as_processed(&mut self, message: &UsageData, _project_name: &str) -> Result<bool> {
         if let Some(hash) = Self::generate_hash(&message.uuid, &message.request_id) {
             // Check if already exists
             if self.seen_hashes.contains(&hash) {
@@ -88,22 +51,7 @@ impl DeduplicationEngine {
             }
 
             // Add to in-memory set
-            self.seen_hashes.insert(hash.clone());
-
-            // Persist to database if available
-            if let Some(conn) = &self.connection {
-                let now = chrono::Utc::now().to_rfc3339();
-                conn.execute(
-                    "INSERT OR IGNORE INTO processed_messages (message_hash, project_name, session_id, processed_at) 
-                     VALUES (?1, ?2, ?3, ?4)",
-                    params![
-                        hash,
-                        project_name,
-                        None::<String>, // session_id - could be added later
-                        now
-                    ],
-                )?;
-            }
+            self.seen_hashes.insert(hash);
 
             Ok(true) // Successfully marked as processed
         } else {
@@ -143,11 +91,6 @@ impl DeduplicationEngine {
     /// Clear all processed message history (useful for testing)
     pub fn clear_history(&mut self) -> Result<()> {
         self.seen_hashes.clear();
-        
-        if let Some(conn) = &self.connection {
-            conn.execute("DELETE FROM processed_messages", [])?;
-        }
-        
         Ok(())
     }
 
@@ -182,7 +125,6 @@ impl std::fmt::Display for DeduplicationStats {
 mod tests {
     use super::*;
     use crate::parser::jsonl::{Message, Usage};
-    use tempfile::NamedTempFile;
 
     fn create_test_message(uuid: Option<String>, request_id: Option<String>) -> UsageData {
         UsageData {
@@ -357,30 +299,25 @@ mod tests {
     }
 
     #[test]
-    fn test_with_database_persistence() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let db_path = temp_file.path();
+    fn test_in_memory_only() {
+        // Test that deduplication works within a single session
+        let mut engine = DeduplicationEngine::new();
         
-        // Create engine and process some messages
-        {
-            let mut engine = DeduplicationEngine::with_database(db_path).unwrap();
-            
-            let message1 = create_test_message(Some("uuid-1".to_string()), Some("req-1".to_string()));
-            let message2 = create_test_message(Some("uuid-2".to_string()), Some("req-2".to_string()));
-            
-            assert!(engine.mark_as_processed(&message1, "test_project").unwrap());
-            assert!(engine.mark_as_processed(&message2, "test_project").unwrap());
-            assert_eq!(engine.processed_count(), 2);
-        }
+        let message1 = create_test_message(Some("uuid-1".to_string()), Some("req-1".to_string()));
+        let message2 = create_test_message(Some("uuid-2".to_string()), Some("req-2".to_string()));
         
-        // Create new engine with same database - should load existing hashes
-        {
-            let engine = DeduplicationEngine::with_database(db_path).unwrap();
-            assert_eq!(engine.processed_count(), 2); // Should have loaded from DB
-            
-            let message1 = create_test_message(Some("uuid-1".to_string()), Some("req-1".to_string()));
-            assert!(engine.is_duplicate(&message1)); // Should recognize as duplicate
-        }
+        assert!(engine.mark_as_processed(&message1, "test_project").unwrap());
+        assert!(engine.mark_as_processed(&message2, "test_project").unwrap());
+        assert_eq!(engine.processed_count(), 2);
+        
+        // Messages should be recognized as duplicates within the same session
+        assert!(engine.is_duplicate(&message1));
+        assert!(engine.is_duplicate(&message2));
+        
+        // New engine won't have any memory of previous messages (in-memory only)
+        let engine2 = DeduplicationEngine::new();
+        assert_eq!(engine2.processed_count(), 0);
+        assert!(!engine2.is_duplicate(&message1));
     }
 
     #[test]

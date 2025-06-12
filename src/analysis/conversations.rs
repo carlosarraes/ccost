@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc, TimeZone};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use crate::parser::jsonl::UsageData;
 use crate::models::PricingManager;

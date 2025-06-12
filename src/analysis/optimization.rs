@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Utc};
 use crate::parser::jsonl::UsageData;
 use crate::models::PricingManager;
 

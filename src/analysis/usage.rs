@@ -3,7 +3,6 @@ use anyhow::{Result, Context};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use crate::parser::jsonl::{UsageData, Usage};
-use crate::storage::Database;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CostCalculationMode {
@@ -45,21 +44,12 @@ pub struct UsageFilter {
 
 pub struct UsageTracker {
     calculation_mode: CostCalculationMode,
-    database: Option<Database>,
 }
 
 impl UsageTracker {
     pub fn new(mode: CostCalculationMode) -> Self {
         Self {
             calculation_mode: mode,
-            database: None,
-        }
-    }
-
-    pub fn with_database(mode: CostCalculationMode, database: Database) -> Self {
-        Self {
-            calculation_mode: mode,
-            database: Some(database),
         }
     }
 
@@ -480,7 +470,6 @@ impl Default for ModelUsage {
 mod tests {
     use super::*;
     use crate::parser::jsonl::Message;
-    use tempfile::TempDir;
     use chrono::Datelike;
 
     fn create_test_usage_data(
@@ -520,15 +509,6 @@ mod tests {
         // Should not panic and create tracker
     }
 
-    #[test]
-    fn test_usage_tracker_with_database() {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let database = Database::new(&db_path).unwrap();
-        
-        let tracker = UsageTracker::with_database(CostCalculationMode::Calculate, database);
-        // Should not panic and create tracker with database
-    }
 
     #[test]
     fn test_token_counting_basic() {

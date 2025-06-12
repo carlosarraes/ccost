@@ -1,5 +1,5 @@
-use anyhow::{Result, Context};
-use chrono::{DateTime, Utc, NaiveDate, TimeZone, Datelike, Weekday, Timelike};
+use anyhow::Result;
+use chrono::{DateTime, Utc, NaiveDate, TimeZone, Datelike, Timelike};
 use chrono_tz::Tz;
 use std::str::FromStr;
 

@@ -7,10 +7,8 @@ use std::fs;
 pub struct Config {
     pub general: GeneralConfig,
     pub currency: CurrencyConfig,
-    pub pricing: PricingConfig,
     pub output: OutputConfig,
     pub timezone: TimezoneConfig,
-    pub cache: CacheConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,13 +20,8 @@ pub struct GeneralConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurrencyConfig {
     pub default_currency: String,
-    pub cache_ttl_hours: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PricingConfig {
-    pub update_source: String, // "manual", "github"
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputConfig {
@@ -43,10 +36,6 @@ pub struct TimezoneConfig {
     pub daily_cutoff_hour: u8, // 0-23, hour when new day starts
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheConfig {
-    pub ttl_hours: u32,
-}
 
 
 impl Default for Config {
@@ -58,10 +47,6 @@ impl Default for Config {
             },
             currency: CurrencyConfig {
                 default_currency: "USD".to_string(),
-                cache_ttl_hours: 24,
-            },
-            pricing: PricingConfig {
-                update_source: "manual".to_string(),
             },
             output: OutputConfig {
                 format: "table".to_string(),
@@ -71,9 +56,6 @@ impl Default for Config {
             timezone: TimezoneConfig {
                 timezone: "UTC".to_string(),
                 daily_cutoff_hour: 0,
-            },
-            cache: CacheConfig {
-                ttl_hours: 24,
             },
         }
     }
@@ -157,26 +139,6 @@ impl Config {
         output.push_str("# USD costs from Claude are converted to your preferred currency\n");
         output.push_str(&format!("default_currency = \"{}\"\n", self.currency.default_currency));
         output.push_str("\n");
-        output.push_str("# How long to cache exchange rates (in hours)\n");
-        output.push_str("# Exchange rates are cached locally to reduce API calls\n");
-        output.push_str("# Default: 24 hours (rates typically update daily)\n");
-        output.push_str("# Set to 0 to always fetch fresh rates (not recommended)\n");
-        output.push_str(&format!("cache_ttl_hours = {}\n", self.currency.cache_ttl_hours));
-        output.push_str("\n");
-        
-        // Pricing settings
-        output.push_str("# =============================================================================\n");
-        output.push_str("# PRICING SETTINGS\n");
-        output.push_str("# =============================================================================\n");
-        output.push_str("\n");
-        output.push_str("[pricing]\n");
-        output.push_str("# Source for model pricing updates:\n");
-        output.push_str("#   \"manual\" - Only use manually configured pricing (default)\n");
-        output.push_str("#   \"github\" - Fetch pricing from GitHub repository (not implemented)\n");
-        output.push_str("# Note: Anthropic updates pricing directly in Claude Code, so external\n");
-        output.push_str("# pricing sources are typically unnecessary\n");
-        output.push_str(&format!("update_source = \"{}\"\n", self.pricing.update_source));
-        output.push_str("\n");
         
         // Output settings
         output.push_str("# =============================================================================\n");
@@ -221,19 +183,6 @@ impl Config {
         output.push_str(&format!("daily_cutoff_hour = {}\n", self.timezone.daily_cutoff_hour));
         output.push_str("\n");
         
-        // Cache settings
-        output.push_str("# =============================================================================\n");
-        output.push_str("# CACHE SETTINGS\n");
-        output.push_str("# =============================================================================\n");
-        output.push_str("\n");
-        output.push_str("[cache]\n");
-        output.push_str("# Time-to-live for cached data (in hours)\n");
-        output.push_str("# Used for caching exchange rates and other data to reduce API calls\n");
-        output.push_str("# Default: 24 hours\n");
-        output.push_str("# Set to 0 to always fetch fresh data (not recommended)\n");
-        output.push_str(&format!("ttl_hours = {}\n", self.cache.ttl_hours));
-        output.push_str("\n");
-        
         
         // Final notes
         output.push_str("# =============================================================================\n");
@@ -250,7 +199,7 @@ impl Config {
         output.push_str("# To modify values:     ccost config --set currency.default_currency EUR\n");
         output.push_str("# To view current:      ccost config --show\n");
         output.push_str("#\n");
-        output.push_str("# For more information: https://github.com/anthropics/ccost\n");
+        output.push_str("# For more information: https://github.com/carlosarraes/ccost\n");
         
         Ok(output)
     }
@@ -271,16 +220,6 @@ impl Config {
                 self.general.cost_mode = value.to_string();
             }
             "currency.default_currency" => self.currency.default_currency = value.to_string(),
-            "currency.cache_ttl_hours" => {
-                self.currency.cache_ttl_hours = value.parse()
-                    .with_context(|| format!("Invalid TTL value: {}", value))?;
-            }
-            "pricing.update_source" => {
-                if !["manual", "github"].contains(&value) {
-                    anyhow::bail!("Invalid update_source: {}. Must be 'manual' or 'github'", value);
-                }
-                self.pricing.update_source = value.to_string();
-            }
             "output.format" => {
                 if !["table", "json"].contains(&value) {
                     anyhow::bail!("Invalid output format: {}. Must be 'table' or 'json'", value);
@@ -307,10 +246,6 @@ impl Config {
                     anyhow::bail!("Hour must be between 0 and 23");
                 }
                 self.timezone.daily_cutoff_hour = hour;
-            }
-            "cache.ttl_hours" => {
-                self.cache.ttl_hours = value.parse()
-                    .with_context(|| format!("Invalid TTL value: {}", value))?;
             }
             _ => anyhow::bail!("Unknown configuration key: {}", key),
         }

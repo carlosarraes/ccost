@@ -47,15 +47,9 @@ impl WatchMode {
         refresh_rate_ms: u64,
     ) -> Result<Self> {
         // Create database
-        let db_path = dirs::config_dir()
-            .unwrap_or_else(|| std::env::current_dir().unwrap())
-            .join("ccost")
-            .join("cache.db");
-        let database1 = crate::storage::sqlite::Database::new(&db_path)?;
-        let database2 = crate::storage::sqlite::Database::new(&db_path)?;
         
-        let pricing_manager = PricingManager::with_database(database1);
-        let currency_converter = CurrencyConverter::new(database2, config.currency.cache_ttl_hours);
+        let pricing_manager = PricingManager::new();
+        let currency_converter = CurrencyConverter::new();
         
         // Get projects directory from config or default
         let projects_dir = if config.general.claude_projects_path.starts_with("~/") {

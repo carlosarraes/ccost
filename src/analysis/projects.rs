@@ -1,5 +1,5 @@
 use crate::analysis::usage::ProjectUsage;
-use crate::output::OutputFormat;
+// Removed unused import: OutputFormat
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq)]
