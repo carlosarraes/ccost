@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Watch mode events - experimental feature
 // Event system for watch mode
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;

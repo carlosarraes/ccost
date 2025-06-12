@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc, TimeZone};
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::HashMap;
 use crate::parser::jsonl::UsageData;

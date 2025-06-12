@@ -197,7 +197,7 @@ impl JsonlParser {
     }
 
     /// Parse a single line of JSONL
-    fn parse_line(&self, line: &str, line_num: usize, file_path: &Path) -> Result<Option<UsageData>> {
+    fn parse_line(&self, line: &str, _line_num: usize, _file_path: &Path) -> Result<Option<UsageData>> {
         let usage_data: UsageData = serde_json::from_str(line)
             .map_err(|e| anyhow!("JSON parse error: {}", e))?;
 

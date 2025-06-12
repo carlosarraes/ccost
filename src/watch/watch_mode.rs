@@ -1,10 +1,9 @@
 // Core watch mode implementation
-use anyhow::{Result, Context};
+use anyhow::Result;
 use chrono::Utc;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
 use tokio::task::JoinHandle;
 
 use crate::config::Config;

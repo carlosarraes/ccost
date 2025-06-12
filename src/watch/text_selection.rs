@@ -92,7 +92,7 @@ impl TextSelectionHandler {
         &mut self,
         mouse_event: MouseEvent,
         area: Rect,
-        events: &VecDeque<WatchEvent>,
+        _events: &VecDeque<WatchEvent>,
     ) -> Result<bool> {
         match mouse_event.kind {
             MouseEventKind::Down(MouseButton::Left) => {

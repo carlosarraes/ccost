@@ -1,20 +1,17 @@
 // Real-time dashboard for watch mode using ratatui
 use anyhow::Result;
-use chrono::Utc;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
-    backend::{Backend, CrosstermBackend},
+    backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    symbols,
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{
-        block::Title, BarChart, Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Sparkline,
-        Tabs, Widget,
+        Block, Borders, Clear, List, ListItem, Paragraph,
     },
     Frame, Terminal,
 };
@@ -22,8 +19,8 @@ use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
 
-use crate::watch::events::{WatchEvent, EfficiencyLevel};
-use crate::watch::session::{SessionTracker, SessionStatistics};
+use crate::watch::events::WatchEvent;
+use crate::watch::session::SessionTracker;
 use crate::watch::text_selection::TextSelectionHandler;
 
 #[derive(Debug)]
