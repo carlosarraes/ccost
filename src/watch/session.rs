@@ -185,7 +185,7 @@ impl SessionTracker {
             .map(|s| s.project.clone());
 
         let most_expensive_project = active_sessions.iter()
-            .max_by(|a, b| a.total_cost.partial_cmp(&b.total_cost).unwrap())
+            .max_by(|a, b| a.total_cost.partial_cmp(&b.total_cost).unwrap_or(std::cmp::Ordering::Equal))
             .map(|s| s.project.clone());
 
         SessionStatistics {

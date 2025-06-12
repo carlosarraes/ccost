@@ -5,7 +5,7 @@ use analysis::{
     ConversationSortBy, CostCalculationMode, OptimizationEngine, ProjectAnalyzer, ProjectSortBy,
     UsageFilter, UsageTracker,
 };
-use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use clap::{Parser, Subcommand};
 use config::Config;
 use models::PricingManager;
@@ -16,7 +16,6 @@ use parser::jsonl::JsonlParser;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use storage::Database;
 
 // Module declarations
 mod analysis;
@@ -24,7 +23,6 @@ mod config;
 mod models;
 mod output;
 mod parser;
-mod storage;
 mod watch;
 
 // Helper structure to associate usage data with project name
@@ -418,13 +416,6 @@ fn handle_config_action(action: ConfigAction, json_output: bool) {
     }
 }
 
-fn get_database() -> anyhow::Result<Database> {
-    let db_path = dirs::config_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap())
-        .join("ccost")
-        .join("cache.db");
-    Database::new(&db_path)
-}
 
 async fn handle_watch_command(
     project_filter: Option<String>,
@@ -463,7 +454,6 @@ async fn handle_usage_command(
     until: Option<String>,
     model: Option<String>,
     target_currency: &str,
-    cache_ttl_hours: u32,
     decimal_places: u8,
     json_output: bool,
     verbose: bool,
@@ -487,21 +477,6 @@ async fn handle_usage_command(
         }
     };
 
-    // Initialize database and components
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
-                    e
-                );
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
 
     // Find and parse JSONL files - use config setting
     let config_for_projects = match Config::load() {
@@ -533,7 +508,7 @@ async fn handle_usage_command(
         PathBuf::from(&config_for_projects.general.claude_projects_path)
     };
 
-    let pricing_manager = PricingManager::with_database(database);
+    let pricing_manager = PricingManager::new();
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -550,7 +525,6 @@ async fn handle_usage_command(
             daily_project.clone().or(project),
             daily_model.clone().or(model),
             target_currency,
-            cache_ttl_hours,
             decimal_places,
             json_output,
             verbose,
@@ -742,19 +716,18 @@ async fn handle_usage_command(
 
     // Convert currencies if needed
     if target_currency != "USD" {
-        if let Ok(db_clone) = get_database() {
-            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+        let currency_converter = CurrencyConverter::new();
 
-            // Convert all USD amounts to target currency
-            for project in &mut filtered_usage {
-                match currency_converter
-                    .convert_from_usd(project.total_cost_usd, target_currency)
-                    .await
-                {
-                    Ok(converted_cost) => {
-                        project.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
-                    }
-                    Err(e) => {
+        // Convert all USD amounts to target currency
+        for project in &mut filtered_usage {
+            match currency_converter
+                .convert_from_usd(project.total_cost_usd, target_currency)
+                .await
+            {
+                Ok(converted_cost) => {
+                    project.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
+                }
+                Err(e) => {
                         if verbose {
                             if json_output {
                                 eprintln!(
@@ -787,7 +760,6 @@ async fn handle_usage_command(
                     }
                 }
             }
-        }
     }
 
     if filtered_usage.is_empty() {
@@ -877,7 +849,13 @@ fn resolve_filters(
         }) => {
             let today = Utc::now().date_naive();
             let days_ago = today - chrono::Duration::days(days as i64 - 1); // Include today
-            let start = Utc.from_utc_datetime(&days_ago.and_hms_opt(0, 0, 0).unwrap());
+            let start = match days_ago.and_hms_opt(0, 0, 0) {
+                Some(naive_dt) => Utc.from_utc_datetime(&naive_dt),
+                None => {
+                    eprintln!("Warning: Failed to create start datetime for {} days ago", days);
+                    Utc::now() // Fallback to current time
+                }
+            };
             (tf_project, tf_model, Some(start), None)
         }
         None => (None, None, None, None),
@@ -892,7 +870,8 @@ fn resolve_filters(
         since.and_then(|s| {
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
                 .ok()
-                .map(|date| Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap()))
+                .and_then(|date| date.and_hms_opt(0, 0, 0)
+                    .map(|naive_dt| Utc.from_utc_datetime(&naive_dt)))
         })
     });
 
@@ -900,7 +879,8 @@ fn resolve_filters(
         until.and_then(|s| {
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
                 .ok()
-                .map(|date| Utc.from_utc_datetime(&date.and_hms_opt(23, 59, 59).unwrap()))
+                .and_then(|date| date.and_hms_opt(23, 59, 59)
+                    .map(|naive_dt| Utc.from_utc_datetime(&naive_dt)))
         })
     });
 
@@ -992,27 +972,11 @@ fn apply_usage_filters(
 async fn handle_projects_command(
     sort_by: Option<ProjectSort>,
     target_currency: &str,
-    cache_ttl_hours: u32,
     decimal_places: u8,
     json_output: bool,
     verbose: bool,
     colored: bool,
 ) -> anyhow::Result<()> {
-    // Initialize database and components
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
-                    e
-                );
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
 
     // Find and parse JSONL files - use config setting
     let config_for_projects = match Config::load() {
@@ -1044,7 +1008,7 @@ async fn handle_projects_command(
         PathBuf::from(&config_for_projects.general.claude_projects_path)
     };
 
-    let pricing_manager = PricingManager::with_database(database);
+    let pricing_manager = PricingManager::new();
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -1217,11 +1181,10 @@ async fn handle_projects_command(
 
     // Convert currencies if needed
     if target_currency != "USD" {
-        if let Ok(db_clone) = get_database() {
-            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+        let currency_converter = CurrencyConverter::new();
 
-            // Convert all USD amounts to target currency
-            for summary in &mut project_summaries {
+        // Convert all USD amounts to target currency
+        for summary in &mut project_summaries {
                 match currency_converter
                     .convert_from_usd(summary.total_cost_usd, target_currency)
                     .await
@@ -1247,7 +1210,6 @@ async fn handle_projects_command(
                     }
                 }
             }
-        }
     }
 
     // Get statistics
@@ -1399,29 +1361,13 @@ async fn handle_daily_usage_command(
     project_filter: Option<String>,
     model_filter: Option<String>,
     target_currency: &str,
-    cache_ttl_hours: u32,
     decimal_places: u8,
     json_output: bool,
     verbose: bool,
     colored: bool,
-    timezone_name: &str,
-    daily_cutoff_hour: u8,
+    _timezone_name: &str,
+    _daily_cutoff_hour: u8,
 ) -> anyhow::Result<()> {
-    // Initialize database and components
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
-                    e
-                );
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
 
     // Find and parse JSONL files - use config setting
     let config_for_projects = match Config::load() {
@@ -1453,7 +1399,7 @@ async fn handle_daily_usage_command(
         PathBuf::from(&config_for_projects.general.claude_projects_path)
     };
 
-    let pricing_manager = PricingManager::with_database(database);
+    let pricing_manager = PricingManager::new();
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -1725,10 +1671,9 @@ async fn handle_daily_usage_command(
 
     // Convert currencies if needed
     if target_currency != "USD" {
-        if let Ok(db_clone) = get_database() {
-            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+        let currency_converter = CurrencyConverter::new();
 
-            // Convert all USD amounts to target currency
+        // Convert all USD amounts to target currency
             for daily in &mut daily_usage_vec {
                 match currency_converter
                     .convert_from_usd(daily.total_cost_usd, target_currency)
@@ -1755,7 +1700,6 @@ async fn handle_daily_usage_command(
                     }
                 }
             }
-        }
     }
 
     // Wrap in our display wrapper after currency conversion
@@ -1818,27 +1762,11 @@ async fn handle_conversations_command(
     max_efficiency: Option<f32>,
     export: Option<String>,
     target_currency: &str,
-    cache_ttl_hours: u32,
     decimal_places: u8,
     json_output: bool,
     verbose: bool,
     colored: bool,
 ) -> anyhow::Result<()> {
-    // Initialize database and components
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
-                    e
-                );
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
 
     // Find and parse JSONL files - use config setting
     let config_for_projects = match Config::load() {
@@ -1870,8 +1798,8 @@ async fn handle_conversations_command(
         PathBuf::from(&config_for_projects.general.claude_projects_path)
     };
 
-    let pricing_manager = PricingManager::with_database(database);
-    let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
+    let _pricing_manager = PricingManager::new();
+    let _usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let conversation_analyzer = ConversationAnalyzer::new();
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -2057,13 +1985,21 @@ async fn handle_conversations_command(
     // Parse date filters
     if let Some(since_str) = since {
         if let Ok(date) = chrono::NaiveDate::parse_from_str(&since_str, "%Y-%m-%d") {
-            filter.since = Some(Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap()));
+            if let Some(naive_dt) = date.and_hms_opt(0, 0, 0) {
+                filter.since = Some(Utc.from_utc_datetime(&naive_dt));
+            } else {
+                eprintln!("Warning: Invalid since date format: {}", since_str);
+            }
         }
     }
 
     if let Some(until_str) = until {
         if let Ok(date) = chrono::NaiveDate::parse_from_str(&until_str, "%Y-%m-%d") {
-            filter.until = Some(Utc.from_utc_datetime(&date.and_hms_opt(23, 59, 59).unwrap()));
+            if let Some(naive_dt) = date.and_hms_opt(23, 59, 59) {
+                filter.until = Some(Utc.from_utc_datetime(&naive_dt));
+            } else {
+                eprintln!("Warning: Invalid until date format: {}", until_str);
+            }
         }
     }
 
@@ -2096,10 +2032,9 @@ async fn handle_conversations_command(
 
     // Convert currencies if needed
     if target_currency != "USD" {
-        if let Ok(db_clone) = get_database() {
-            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+        let currency_converter = CurrencyConverter::new();
 
-            for insight in &mut insights {
+        for insight in &mut insights {
                 match currency_converter
                     .convert_from_usd(insight.total_cost, target_currency)
                     .await
@@ -2139,7 +2074,6 @@ async fn handle_conversations_command(
                     }
                 }
             }
-        }
     }
 
     // Handle export if specified
@@ -2339,27 +2273,11 @@ async fn handle_optimize_command(
     model_from: Option<String>,
     model_to: Option<String>,
     target_currency: &str,
-    cache_ttl_hours: u32,
     decimal_places: u8,
     json_output: bool,
     verbose: bool,
     _colored: bool,
 ) -> anyhow::Result<()> {
-    // Initialize database and components
-    let database = match get_database() {
-        Ok(db) => db,
-        Err(e) => {
-            if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to initialize database: {}"}}"#,
-                    e
-                );
-            } else {
-                eprintln!("Error: Failed to initialize database: {}", e);
-            }
-            std::process::exit(1);
-        }
-    };
 
     // Find and parse JSONL files - use config setting
     let config_for_projects = match Config::load() {
@@ -2391,7 +2309,7 @@ async fn handle_optimize_command(
         PathBuf::from(&config_for_projects.general.claude_projects_path)
     };
 
-    let pricing_manager = PricingManager::with_database(database);
+    let pricing_manager = PricingManager::new();
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -2472,9 +2390,10 @@ async fn handle_optimize_command(
                                         if let Ok(since_date) =
                                             chrono::NaiveDate::parse_from_str(since_str, "%Y-%m-%d")
                                         {
-                                            let since_datetime = chrono::Utc.from_utc_datetime(
-                                                &since_date.and_hms_opt(0, 0, 0).unwrap(),
-                                            );
+                                            let since_datetime = match since_date.and_hms_opt(0, 0, 0) {
+                                                Some(naive_dt) => chrono::Utc.from_utc_datetime(&naive_dt),
+                                                None => continue, // Skip malformed date
+                                            };
                                             if message_time < since_datetime {
                                                 continue;
                                             }
@@ -2486,9 +2405,10 @@ async fn handle_optimize_command(
                                         if let Ok(until_date) =
                                             chrono::NaiveDate::parse_from_str(until_str, "%Y-%m-%d")
                                         {
-                                            let until_datetime = chrono::Utc.from_utc_datetime(
-                                                &until_date.and_hms_opt(23, 59, 59).unwrap(),
-                                            );
+                                            let until_datetime = match until_date.and_hms_opt(23, 59, 59) {
+                                                Some(naive_dt) => chrono::Utc.from_utc_datetime(&naive_dt),
+                                                None => continue, // Skip malformed date
+                                            };
                                             if message_time > until_datetime {
                                                 continue;
                                             }
@@ -2595,10 +2515,9 @@ async fn handle_optimize_command(
 
     // Convert currencies if needed
     if target_currency != "USD" {
-        if let Ok(db_clone) = get_database() {
-            let currency_converter = CurrencyConverter::new(db_clone, cache_ttl_hours);
+        let currency_converter = CurrencyConverter::new();
 
-            // Convert currency values in the summary
+        // Convert currency values in the summary
             if let Ok(converted_current) = currency_converter
                 .convert_from_usd(optimization_summary.total_current_cost, target_currency)
                 .await
@@ -2642,7 +2561,6 @@ async fn handle_optimize_command(
                     recommendation.total_potential_cost = converted;
                 }
             }
-        }
     }
 
     // Handle export if specified
@@ -2962,7 +2880,6 @@ async fn main() -> anyhow::Result<()> {
                 until,
                 model,
                 target_currency,
-                config.currency.cache_ttl_hours,
                 config.output.decimal_places,
                 cli.json,
                 cli.verbose,
@@ -2976,7 +2893,6 @@ async fn main() -> anyhow::Result<()> {
             handle_projects_command(
                 sort_by,
                 target_currency,
-                config.currency.cache_ttl_hours,
                 config.output.decimal_places,
                 cli.json,
                 cli.verbose,
@@ -3010,7 +2926,6 @@ async fn main() -> anyhow::Result<()> {
                 max_efficiency,
                 export,
                 target_currency,
-                config.currency.cache_ttl_hours,
                 config.output.decimal_places,
                 cli.json,
                 cli.verbose,
@@ -3038,7 +2953,6 @@ async fn main() -> anyhow::Result<()> {
                 model_from,
                 model_to,
                 target_currency,
-                config.currency.cache_ttl_hours,
                 config.output.decimal_places,
                 cli.json,
                 cli.verbose,
@@ -3092,7 +3006,7 @@ mod tests {
             "--json",
             "usage",
         ])
-        .unwrap();
+        .expect("Failed to parse CLI arguments");
 
         assert_eq!(cli.config, Some("/custom/config.toml".to_string()));
         assert_eq!(cli.currency, Some("EUR".to_string()));
@@ -3115,7 +3029,7 @@ mod tests {
             "--model",
             "claude-sonnet-4",
         ])
-        .unwrap();
+        .expect("Failed to parse CLI arguments");
 
         match cli.command {
             Commands::Usage {
@@ -3131,7 +3045,7 @@ mod tests {
                 assert_eq!(model, Some("claude-sonnet-4".to_string()));
                 assert!(timeframe.is_none());
             }
-            _ => panic!("Expected Usage command"),
+            _ => assert!(false, "Expected Usage command but got different command"),
         }
     }
 
@@ -3148,7 +3062,7 @@ mod tests {
                     })
                 ));
             }
-            _ => panic!("Expected Usage command"),
+            _ => assert!(false, "Expected Usage command but got different command"),
         }
 
         let cli =
@@ -3159,23 +3073,23 @@ mod tests {
                     assert_eq!(project, Some("test".to_string()));
                     assert_eq!(model, None);
                 }
-                _ => panic!("Expected Yesterday timeframe"),
+                _ => assert!(false, "Expected Yesterday timeframe but got different timeframe"),
             },
-            _ => panic!("Expected Usage command"),
+            _ => assert!(false, "Expected Usage command but got different command"),
         }
 
         let cli =
             Cli::try_parse_from(["ccost", "usage", "this-week", "--model", "claude-sonnet-4"])
-                .unwrap();
+                .expect("Failed to parse CLI arguments");
         match cli.command {
             Commands::Usage { timeframe, .. } => match timeframe {
                 Some(UsageTimeframe::ThisWeek { project, model }) => {
                     assert_eq!(project, None);
                     assert_eq!(model, Some("claude-sonnet-4".to_string()));
                 }
-                _ => panic!("Expected ThisWeek timeframe"),
+                _ => assert!(false, "Expected ThisWeek timeframe but got different timeframe"),
             },
-            _ => panic!("Expected Usage command"),
+            _ => assert!(false, "Expected Usage command but got different command"),
         }
 
         let cli = Cli::try_parse_from(["ccost", "usage", "this-month"]).unwrap();
@@ -3189,7 +3103,7 @@ mod tests {
                     })
                 ));
             }
-            _ => panic!("Expected Usage command"),
+            _ => assert!(false, "Expected Usage command but got different command"),
         }
     }
 
@@ -3201,7 +3115,7 @@ mod tests {
             Commands::Projects { sort_by } => {
                 assert!(matches!(sort_by, Some(ProjectSort::Cost)));
             }
-            _ => panic!("Expected Projects command"),
+            _ => assert!(false, "Expected Projects command but got different command"),
         }
 
         let cli = Cli::try_parse_from(["ccost", "projects", "tokens"]).unwrap();
@@ -3210,7 +3124,7 @@ mod tests {
             Commands::Projects { sort_by } => {
                 assert!(matches!(sort_by, Some(ProjectSort::Tokens)));
             }
-            _ => panic!("Expected Projects command"),
+            _ => assert!(false, "Expected Projects command but got different command"),
         }
 
         // Test default (no subcommand)
@@ -3220,7 +3134,7 @@ mod tests {
             Commands::Projects { sort_by } => {
                 assert!(matches!(sort_by, None));
             }
-            _ => panic!("Expected Projects command"),
+            _ => assert!(false, "Expected Projects command but got different command"),
         }
     }
 
@@ -3232,7 +3146,7 @@ mod tests {
             Commands::Config { action } => {
                 assert!(matches!(action, ConfigAction::Show));
             }
-            _ => panic!("Expected Config command"),
+            _ => assert!(false, "Expected Config command but got different command"),
         }
 
         let cli = Cli::try_parse_from(["ccost", "config", "init"]).unwrap();
@@ -3241,12 +3155,12 @@ mod tests {
             Commands::Config { action } => {
                 assert!(matches!(action, ConfigAction::Init));
             }
-            _ => panic!("Expected Config command"),
+            _ => assert!(false, "Expected Config command but got different command"),
         }
 
         let cli =
             Cli::try_parse_from(["ccost", "config", "set", "currency.default_currency", "EUR"])
-                .unwrap();
+                .expect("Failed to parse CLI arguments");
 
         match cli.command {
             Commands::Config { action } => match action {
@@ -3254,9 +3168,9 @@ mod tests {
                     assert_eq!(key, "currency.default_currency");
                     assert_eq!(value, "EUR");
                 }
-                _ => panic!("Expected Set action"),
+                _ => assert!(false, "Expected Set action but got different action"),
             },
-            _ => panic!("Expected Config command"),
+            _ => assert!(false, "Expected Config command but got different command"),
         }
     }
 
@@ -3287,7 +3201,7 @@ mod tests {
             "--export",
             "csv",
         ])
-        .unwrap();
+        .expect("Failed to parse CLI arguments");
 
         match cli.command {
             Commands::Optimize {
@@ -3309,7 +3223,7 @@ mod tests {
                 assert_eq!(model_from, Some("Opus".to_string()));
                 assert_eq!(model_to, Some("Sonnet".to_string()));
             }
-            _ => panic!("Expected Optimize command"),
+            _ => assert!(false, "Expected Optimize command but got different command"),
         }
     }
 
