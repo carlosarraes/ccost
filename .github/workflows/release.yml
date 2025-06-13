@@ -14,6 +14,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   create-release:
     runs-on: ubuntu-latest
@@ -38,35 +43,33 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
-          RELEASE_BODY="## ccost $VERSION
+          
+          # Create the release using gh CLI with heredoc for multiline body
+          gh release create "$VERSION" \
+            --title "ccost $VERSION" \
+            --notes "$(cat <<'EOF'
+          ## ccost $VERSION
 
           ### Installation
 
           **Linux (x86_64)**:
-          \`\`\`bash
+          ```bash
           curl -sSf https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
-          \`\`\`
+          ```
 
           **Manual Download**:
           Download the appropriate binary for your platform below.
 
           ### Changes
 
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes."
-          
-          # Create the release using gh CLI
-          gh release create "$VERSION" \
-            --title "ccost $VERSION" \
-            --notes "$RELEASE_BODY" \
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
+          EOF
+          )" \
             --target main
           
-          # Get the upload URL for artifacts
-          UPLOAD_URL=$(gh api repos/${{ github.repository }}/releases/tags/$VERSION --jq '.upload_url' | sed 's/{?name,label}//g')
-          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
-          
-          # Get release ID
-          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/tags/$VERSION --jq '.id')
-          echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+          # Set dummy outputs for compatibility (not used with gh CLI upload)
+          echo "upload_url=dummy" >> $GITHUB_OUTPUT
+          echo "release_id=dummy" >> $GITHUB_OUTPUT
 
   build:
     needs: create-release
