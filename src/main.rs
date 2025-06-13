@@ -78,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
                 colored,
                 &config.timezone.timezone,
                 config.timezone.daily_cutoff_hour,
+                &config.output.date_format,
             )
             .await?;
         }

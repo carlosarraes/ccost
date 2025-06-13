@@ -1,6 +1,7 @@
 use crate::analysis::UsageFilter;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use crate::cli::args::UsageTimeframe;
+use crate::utils::DateFormatter;
 
 /// Helper structure to associate usage data with project name
 #[derive(Debug, Clone)]
@@ -100,7 +101,7 @@ pub fn resolve_filters(
 }
 
 /// Prints filter information for verbose mode
-pub fn print_filter_info(filter: &UsageFilter, json_output: bool) {
+pub fn print_filter_info(filter: &UsageFilter, json_output: bool, date_formatter: &DateFormatter) {
     if json_output {
         return; // Skip verbose info in JSON mode
     }
@@ -113,10 +114,10 @@ pub fn print_filter_info(filter: &UsageFilter, json_output: bool) {
         println!("  Model: {}", model);
     }
     if let Some(ref since) = filter.since {
-        println!("  Since: {}", since.format("%Y-%m-%d %H:%M"));
+        println!("  Since: {}", date_formatter.format_for_table_with_time(since));
     }
     if let Some(ref until) = filter.until {
-        println!("  Until: {}", until.format("%Y-%m-%d %H:%M"));
+        println!("  Until: {}", date_formatter.format_for_table_with_time(until));
     }
     println!();
 }
