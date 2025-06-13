@@ -1,4 +1,7 @@
-name: Release
+name: Build and Release
+
+permissions:
+  contents: write
 
 on:
   push:
@@ -14,160 +17,84 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      release_id: ${{ steps.create_release.outputs.id }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Get version from tag
-        id: get_version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Create Release
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
-          
-          # Create the release using gh CLI with heredoc for multiline body
-          gh release create "$VERSION" \
-            --title "ccost $VERSION" \
-            --notes "$(cat <<'EOF'
-          ## ccost $VERSION
-
-          ### Installation
-
-          **Linux (x86_64)**:
-          ```bash
-          curl -sSf https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
-          ```
-
-          **Manual Download**:
-          Download the appropriate binary for your platform below.
-
-          ### Changes
-
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
-          EOF
-          )" \
-            --target main
-          
-          # Set dummy outputs for compatibility (not used with gh CLI upload)
-          echo "upload_url=dummy" >> $GITHUB_OUTPUT
-          echo "release_id=dummy" >> $GITHUB_OUTPUT
-
   build:
-    needs: create-release
+    name: Build ${{ matrix.platform.os }}-${{ matrix.platform.arch }}
+    runs-on: ${{ matrix.platform.os-type }}
     strategy:
       matrix:
-        include:
-          - os: ubuntu-latest
+        platform:
+          - os: linux
+            os-type: ubuntu-latest
+            arch: x86_64
             target: x86_64-unknown-linux-musl
             binary_name: ccost
-            asset_name: ccost-linux-x86_64
-          - os: macos-latest
+          - os: darwin
+            os-type: macos-latest
+            arch: x86_64
             target: x86_64-apple-darwin
             binary_name: ccost
-            asset_name: ccost-macos-x86_64
-          - os: macos-latest
+          - os: darwin
+            os-type: macos-latest
+            arch: aarch64
             target: aarch64-apple-darwin
             binary_name: ccost
-            asset_name: ccost-macos-aarch64
 
-    runs-on: ${{ matrix.os }}
-    
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-      
-      - name: Install musl-tools (Linux only)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-      
+          targets: ${{ matrix.platform.target }}
+
+      - name: Install musl tools (Linux only)
+        if: contains(matrix.platform.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
       - name: Build release binary
-        run: |
-          cargo build --release --target ${{ matrix.target }}
-          
-      - name: Strip binary (Linux/macOS)
-        run: |
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
-          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
-          fi
-          
-      - name: Create binary archive
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Prepare binary
+        shell: bash
+        id: prepare_binary
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/
-          cd dist
-          tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.binary_name }}
+          cp target/${{ matrix.platform.target }}/release/${{ matrix.platform.binary_name }} dist/
           
-      - name: Upload Release Asset
+          # Set binary name based on OS and architecture
+          BINARY_NAME="ccost-${{ matrix.platform.os }}-${{ matrix.platform.arch }}"
+          
+          # Create compressed archive
+          cd dist
+          tar -czf "${BINARY_NAME}.tar.gz" ${{ matrix.platform.binary_name }}
+          
+          echo "asset_path=dist/${BINARY_NAME}.tar.gz" >> $GITHUB_OUTPUT
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.prepare_binary.outputs.asset_path }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## ccost ${{ github.ref_name }}
+
+            ### Installation
+
+            **Linux (x86_64)**:
+            ```bash
+            curl -sSf https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+            ```
+
+            **Manual Download**:
+            Download the appropriate binary for your platform below.
+
+            ### Changes
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Get the version from the tag
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.tag }}"
-          else
-            VERSION="${GITHUB_REF#refs/tags/}"
-          fi
-          
-          # Upload the asset using gh CLI
-          gh release upload "$VERSION" "./dist/${{ matrix.asset_name }}.tar.gz" --clobber
-
-  test-binaries:
-    needs: [create-release, build]
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            asset_name: ccost-linux-x86_64
-          - os: macos-latest
-            asset_name: ccost-macos-x86_64
-          - os: macos-latest
-            asset_name: ccost-macos-aarch64
-
-    runs-on: ${{ matrix.os }}
-    
-    steps:
-      - name: Download release asset
-        uses: actions/download-artifact@v3
-        with:
-          name: ${{ matrix.asset_name }}.tar.gz
-          path: ./test-binary/
-        continue-on-error: true
-        
-      - name: Test binary
-        run: |
-          echo "Testing binary functionality..."
-          # Note: Full testing would require sample JSONL files
-          # For now, just verify binary runs and shows help
-          cd test-binary
-          tar -xzf ${{ matrix.asset_name }}.tar.gz 2>/dev/null || echo "Binary test skipped - archive not found"
-          if [ -f ccost ]; then
-            chmod +x ccost
-            ./ccost --help || echo "Binary test completed"
-          else
-            echo "Binary test skipped - binary not found"
-          fi
