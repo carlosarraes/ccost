@@ -6,12 +6,15 @@ pub mod timeline;
 pub mod timezone;
 pub mod usage;
 
-// Re-export key types for easier access
+// Re-export key types for easier access (some temporarily unused)
+#[allow(unused)]
 pub use conversations::{
     ConversationAnalyzer, ConversationFilter, ConversationInsight, ConversationInsightList,
     ConversationSortBy,
 };
+#[allow(unused)]
 pub use optimization::OptimizationEngine;
+#[allow(unused)]
 pub use projects::{ProjectAnalyzer, ProjectSortBy};
 pub use timezone::TimezoneCalculator;
 pub use usage::{CostCalculationMode, UsageFilter, UsageTracker};

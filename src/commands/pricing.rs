@@ -2,6 +2,7 @@
 
 use crate::cli::PricingAction;
 
+#[allow(unused_variables)]
 pub fn handle_pricing_command(
     action: PricingAction,
     target_currency: &str,
