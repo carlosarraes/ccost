@@ -349,12 +349,47 @@ mod tests {
         assert!(tracker.parse_timestamp(invalid_timestamp).is_err());
     }
 
+    fn create_test_usage_data_local(
+        timestamp: &str,
+        uuid: Option<&str>,
+        request_id: Option<&str>,
+        model: Option<&str>,
+        input_tokens: Option<u64>,
+        output_tokens: Option<u64>,
+        cache_creation_tokens: Option<u64>,
+        cache_read_tokens: Option<u64>,
+        cost: Option<f64>,
+    ) -> UsageData {
+        UsageData {
+            timestamp: Some(timestamp.to_string()),
+            uuid: uuid.map(|s| s.to_string()),
+            request_id: request_id.map(|s| s.to_string()),
+            session_id: Some("test-session-123".to_string()),
+            message: model.map(|m| Message {
+                id: None,
+                content: Some("test content".to_string()),
+                role: Some("assistant".to_string()),
+                model: Some(m.to_string()),
+                usage: None,
+            }),
+            usage: Some(Usage {
+                input_tokens,
+                output_tokens,
+                cache_creation_input_tokens: cache_creation_tokens,
+                cache_read_input_tokens: cache_read_tokens,
+            }),
+            cost_usd: cost,
+            cwd: Some("/test/project".to_string()),
+            original_cwd: Some("/test/project".to_string()),
+        }
+    }
+
     #[test]
     fn test_model_extraction() {
         let tracker = UsageTracker::new(CostCalculationMode::Auto);
         
         // Test with model in message
-        let message_with_model = create_test_usage_data(
+        let message_with_model = create_test_usage_data_local(
             "2025-06-09T10:00:00Z",
             Some("uuid1"),
             Some("req1"),
@@ -374,6 +409,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid: Some("uuid1".to_string()),
             request_id: Some("req1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(100),

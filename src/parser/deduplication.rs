@@ -407,27 +407,24 @@ mod tests {
         // This test simulates the real-world scenario where request_id is null
         // but message.id is available (common in Claude JSONL data)
         let hash1 = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &None, // request_id is null (common case)
-            &Some("msg_01ABC123".to_string()) // message.id is available
+            &Some("msg_01ABC123".to_string()), // message.id is available
+            &Some("session-123".to_string()) // session_id is available
         );
         
-        assert!(hash1.is_some(), "Should generate hash using uuid + message_id fallback");
+        assert!(hash1.is_some(), "Should generate hash using message_id + session_id");
         
         // Same combination should produce same hash
         let hash2 = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &None,
-            &Some("msg_01ABC123".to_string())
+            &Some("msg_01ABC123".to_string()),
+            &Some("session-123".to_string())
         );
         
-        assert_eq!(hash1, hash2, "Fallback hashes should be deterministic");
+        assert_eq!(hash1, hash2, "Hashes should be deterministic");
         
         // Different message_id should produce different hash
         let hash3 = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &None,
-            &Some("msg_01XYZ789".to_string())
+            &Some("msg_01XYZ789".to_string()),
+            &Some("session-123".to_string())
         );
         
         assert_ne!(hash1, hash3, "Different message IDs should produce different hashes");
@@ -435,26 +432,24 @@ mod tests {
 
     #[test]
     fn test_message_id_only_fallback() {
-        // Test scenario where only message.id is available
+        // Test scenario where only message.id is available (should fail)
         let hash = DeduplicationEngine::generate_hash(
-            &None,
-            &None,
-            &Some("msg_01ABC123".to_string())
-        );
-        
-        assert!(hash.is_some(), "Should generate hash using message_id only as last resort");
-    }
-
-    #[test]
-    fn test_uuid_only_fallback() {
-        // Test scenario where only uuid is available (legacy support)
-        let hash = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &None,
+            &Some("msg_01ABC123".to_string()),
             &None
         );
         
-        assert!(hash.is_some(), "Should generate hash using uuid only for legacy support");
+        assert!(hash.is_none(), "Should not generate hash without session_id");
+    }
+
+    #[test]
+    fn test_session_id_only_fallback() {
+        // Test scenario where only session_id is available 
+        let hash = DeduplicationEngine::generate_hash(
+            &None,
+            &Some("session-123".to_string())
+        );
+        
+        assert!(hash.is_none(), "Should not generate hash without message_id");
     }
 
     #[test]
@@ -486,15 +481,13 @@ mod tests {
     fn test_priority_order_uuid_request_id_over_message_id() {
         // Test that uuid + request_id takes priority over uuid + message_id
         let hash1 = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &Some("req-456".to_string()),
-            &Some("msg_789".to_string())
+            &Some("msg_789".to_string()),
+            &Some("req-456".to_string())
         );
         
         let hash2 = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &Some("req-456".to_string()),
-            &None // message_id not used when request_id is available
+            &Some("msg_789".to_string()),
+            &Some("req-456".to_string())
         );
         
         assert_eq!(hash1, hash2, "Should prioritize uuid + request_id even when message_id is available");
@@ -512,9 +505,8 @@ mod tests {
         };
         
         let new_style_hash = DeduplicationEngine::generate_hash(
-            &Some("uuid-123".to_string()),
-            &Some("req-456".to_string()),
-            &Some("msg-789".to_string())
+            &Some("msg-789".to_string()),
+            &Some("req-456".to_string())
         ).unwrap();
         
         assert_eq!(old_style_hash, new_style_hash, "Should maintain backwards compatibility for existing hash format");

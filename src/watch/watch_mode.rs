@@ -459,6 +459,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("test-uuid".to_string()),
             request_id: Some("req-1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: None,
             cost_usd: None,
@@ -743,6 +744,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("msg1".to_string()),
             request_id: Some("req1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(0),
@@ -759,6 +761,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("msg2".to_string()),
             request_id: Some("req2".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(15),
@@ -775,6 +778,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("msg4".to_string()),
             request_id: Some("req4".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(0),
@@ -821,6 +825,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("test-uuid".to_string()),
             request_id: Some("req-1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(0),
@@ -838,6 +843,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("test-uuid".to_string()),
             request_id: Some("req-1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(10),
@@ -855,6 +861,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("test-uuid".to_string()),
             request_id: Some("req-1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(0),
@@ -872,6 +879,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("test-uuid".to_string()),
             request_id: Some("req-1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: None,
             cost_usd: None,
@@ -908,6 +916,7 @@ mod tests {
             timestamp: Some("2025-06-09T10:30:00Z".to_string()),
             uuid: Some("msg1".to_string()),
             request_id: Some("req1".to_string()),
+            session_id: Some("test-session-123".to_string()),
             message: None,
             usage: Some(Usage {
                 input_tokens: Some(0),
