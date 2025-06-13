@@ -124,6 +124,7 @@ mod integration_tests {
                 timestamp: Some("2025-06-09T10:00:00Z".to_string()),
                 uuid: Some("uuid1".to_string()),
                 request_id: Some("req1".to_string()),
+                session_id: None,
                 message: Some(Message {
                     model: Some("claude-sonnet-4".to_string()),
                     ..Default::default()
@@ -143,6 +144,7 @@ mod integration_tests {
                 timestamp: Some("2025-06-09T10:01:00Z".to_string()),
                 uuid: Some("uuid2".to_string()),
                 request_id: Some("req2".to_string()),
+                session_id: None,
                 message: Some(Message {
                     model: Some("claude-sonnet-4".to_string()),
                     ..Default::default()

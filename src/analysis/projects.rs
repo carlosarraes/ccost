@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_project_analyzer_creation() {
-        let analyzer = ProjectAnalyzer::new();
+        let _analyzer = ProjectAnalyzer::new();
         // Should not panic and create analyzer
     }
 
