@@ -142,7 +142,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Config { action } => {
             handle_config_action(action, cli.json);
         }
-        Commands::Pricing { action } => {
+        Commands::Pricing { action: _ } => {
             // TODO: implement pricing command handler
             eprintln!("Pricing command not yet implemented");
         }

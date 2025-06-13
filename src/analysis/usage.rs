@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_usage_tracker_creation() {
-        let tracker = UsageTracker::new(CostCalculationMode::Auto);
+        let _tracker = UsageTracker::new(CostCalculationMode::Auto);
         // Should not panic and create tracker
     }
 
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_usage_filtering() {
-        let tracker = UsageTracker::new(CostCalculationMode::Auto);
+        let _tracker = UsageTracker::new(CostCalculationMode::Auto);
 
         // Test filter by project name
         let filter = UsageFilter {

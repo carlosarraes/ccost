@@ -216,18 +216,18 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_hash_missing_uuid() {
-        let hash = DeduplicationEngine::generate_hash(&None, &Some("req-456".to_string()), &None);
+    fn test_generate_hash_missing_message_id() {
+        let hash = DeduplicationEngine::generate_hash(&None, &Some("session-456".to_string()));
 
         assert!(hash.is_none());
     }
 
     #[test]
-    fn test_generate_hash_missing_request_id() {
-        let hash = DeduplicationEngine::generate_hash(&Some("uuid-123".to_string()), &None, &None);
+    fn test_generate_hash_missing_session_id() {
+        let hash = DeduplicationEngine::generate_hash(&Some("msg-123".to_string()), &None);
 
-        // Should still generate hash with uuid only (fallback)
-        assert!(hash.is_some());
+        // Should return None when missing session_id (requires both for accuracy)
+        assert!(hash.is_none());
     }
 
     #[test]
