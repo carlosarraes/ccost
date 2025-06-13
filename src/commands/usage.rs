@@ -1,15 +1,19 @@
-use crate::analysis::{CostCalculationMode, TimezoneCalculator, UsageFilter, UsageTracker, DailyUsage, DailyUsageList};
+use crate::analysis::{
+    CostCalculationMode, DailyUsage, DailyUsageList, TimezoneCalculator, UsageFilter, UsageTracker,
+};
 use crate::cli::args::UsageTimeframe;
 use crate::config::Config;
-use crate::models::currency::CurrencyConverter;
 use crate::models::PricingManager;
+use crate::models::currency::CurrencyConverter;
 use crate::output::OutputFormat;
 use crate::parser::deduplication::DeduplicationEngine;
 use crate::parser::jsonl::JsonlParser;
-use crate::utils::{EnhancedUsageData, resolve_filters, print_filter_info, apply_usage_filters, DateFormatter};
-use std::path::PathBuf;
-use std::collections::HashMap;
+use crate::utils::{
+    DateFormatter, EnhancedUsageData, apply_usage_filters, print_filter_info, resolve_filters,
+};
 use chrono::Utc;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub async fn handle_usage_command(
     timeframe: Option<UsageTimeframe>,
@@ -57,7 +61,6 @@ pub async fn handle_usage_command(
             std::process::exit(1);
         }
     };
-
 
     // Find and parse JSONL files - use config setting
     let config_for_projects = match Config::load() {
@@ -310,38 +313,38 @@ pub async fn handle_usage_command(
                     project.total_cost_usd = converted_cost; // Reusing the USD field for converted amount
                 }
                 Err(e) => {
-                        if verbose {
-                            if json_output {
-                                eprintln!(
-                                    r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
-                                    project.project_name, e
-                                );
-                            } else {
-                                eprintln!(
-                                    "Warning: Failed to convert currency for {}: {}",
-                                    project.project_name, e
-                                );
-                            }
+                    if verbose {
+                        if json_output {
+                            eprintln!(
+                                r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
+                                project.project_name, e
+                            );
+                        } else {
+                            eprintln!(
+                                "Warning: Failed to convert currency for {}: {}",
+                                project.project_name, e
+                            );
                         }
-                        // Keep USD amounts if conversion fails
                     }
+                    // Keep USD amounts if conversion fails
                 }
+            }
 
-                // Convert model-level costs too
-                for model_usage in project.model_usage.values_mut() {
-                    match currency_converter
-                        .convert_from_usd(model_usage.cost_usd, target_currency)
-                        .await
-                    {
-                        Ok(converted_cost) => {
-                            model_usage.cost_usd = converted_cost;
-                        }
-                        Err(_) => {
-                            // Keep USD amount if conversion fails
-                        }
+            // Convert model-level costs too
+            for model_usage in project.model_usage.values_mut() {
+                match currency_converter
+                    .convert_from_usd(model_usage.cost_usd, target_currency)
+                    .await
+                {
+                    Ok(converted_cost) => {
+                        model_usage.cost_usd = converted_cost;
+                    }
+                    Err(_) => {
+                        // Keep USD amount if conversion fails
                     }
                 }
             }
+        }
     }
 
     if filtered_usage.is_empty() {
@@ -721,32 +724,32 @@ pub async fn handle_daily_usage_command(
         let currency_converter = CurrencyConverter::new();
 
         // Convert all USD amounts to target currency
-            for daily in &mut daily_usage_vec {
-                match currency_converter
-                    .convert_from_usd(daily.total_cost_usd, target_currency)
-                    .await
-                {
-                    Ok(converted_cost) => {
-                        daily.total_cost_usd = converted_cost;
-                    }
-                    Err(e) => {
-                        if verbose {
-                            if json_output {
-                                eprintln!(
-                                    r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
-                                    daily.date, e
-                                );
-                            } else {
-                                eprintln!(
-                                    "Warning: Failed to convert currency for {}: {}",
-                                    daily.date, e
-                                );
-                            }
+        for daily in &mut daily_usage_vec {
+            match currency_converter
+                .convert_from_usd(daily.total_cost_usd, target_currency)
+                .await
+            {
+                Ok(converted_cost) => {
+                    daily.total_cost_usd = converted_cost;
+                }
+                Err(e) => {
+                    if verbose {
+                        if json_output {
+                            eprintln!(
+                                r#"{{"status": "warning", "message": "Failed to convert currency for {}: {}"}}"#,
+                                daily.date, e
+                            );
+                        } else {
+                            eprintln!(
+                                "Warning: Failed to convert currency for {}: {}",
+                                daily.date, e
+                            );
                         }
-                        // Keep USD amounts if conversion fails
                     }
+                    // Keep USD amounts if conversion fails
                 }
             }
+        }
     }
 
     // Wrap in our display wrapper after currency conversion

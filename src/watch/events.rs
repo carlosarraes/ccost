@@ -106,10 +106,14 @@ impl WatchEvent {
         match self {
             WatchEvent::CacheHit { .. } => EfficiencyLevel::Excellent,
             WatchEvent::NewMessage { cost, .. } => {
-                if *cost < 0.01 { EfficiencyLevel::Good }
-                else if *cost < 0.05 { EfficiencyLevel::Warning }
-                else { EfficiencyLevel::Expensive }
-            },
+                if *cost < 0.01 {
+                    EfficiencyLevel::Good
+                } else if *cost < 0.05 {
+                    EfficiencyLevel::Warning
+                } else {
+                    EfficiencyLevel::Expensive
+                }
+            }
             WatchEvent::ExpensiveConversation { .. } => EfficiencyLevel::Expensive,
             _ => EfficiencyLevel::Neutral,
         }
@@ -118,11 +122,11 @@ impl WatchEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EfficiencyLevel {
-    Excellent,  // Green - cache hits, very low cost
-    Good,       // Green - low cost operations
-    Warning,    // Yellow - moderate cost
-    Expensive,  // Red - high cost operations
-    Neutral,    // Default color
+    Excellent, // Green - cache hits, very low cost
+    Good,      // Green - low cost operations
+    Warning,   // Yellow - moderate cost
+    Expensive, // Red - high cost operations
+    Neutral,   // Default color
 }
 
 impl EfficiencyLevel {

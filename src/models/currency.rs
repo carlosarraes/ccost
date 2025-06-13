@@ -7,7 +7,6 @@ pub struct CurrencyConverter {
     client: reqwest::Client,
 }
 
-
 impl CurrencyConverter {
     /// Create a new stateless currency converter
     pub fn new() -> Self {
@@ -17,9 +16,7 @@ impl CurrencyConverter {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self {
-            client,
-        }
+        Self { client }
     }
 
     /// Convert amount from USD to target currency
@@ -33,7 +30,12 @@ impl CurrencyConverter {
     }
 
     /// Convert amount between any two currencies
-    pub async fn convert(&self, amount: f64, from_currency: &str, to_currency: &str) -> Result<f64> {
+    pub async fn convert(
+        &self,
+        amount: f64,
+        from_currency: &str,
+        to_currency: &str,
+    ) -> Result<f64> {
         if from_currency == to_currency {
             return Ok(amount);
         }
@@ -47,7 +49,6 @@ impl CurrencyConverter {
         // Fetch from ECB API (no caching)
         self.fetch_ecb_rate(from_currency, to_currency).await
     }
-
 
     /// Fetch exchange rate from ECB API
     async fn fetch_ecb_rate(&self, from_currency: &str, to_currency: &str) -> Result<f64> {
@@ -78,7 +79,8 @@ impl CurrencyConverter {
         }
 
         let url = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml";
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .send()
             .await
@@ -89,17 +91,15 @@ impl CurrencyConverter {
         }
 
         let xml_text = response.text().await?;
-        
+
         // Parse the simple XML structure manually (ECB XML is predictable)
         // Look for currency='XXX' rate='Y.YY' pattern (ECB uses single quotes)
         let pattern = format!(r#"currency='{}' rate='([0-9.]+)'"#, currency);
-        let re = regex::Regex::new(&pattern)
-            .context("Failed to create regex")?;
+        let re = regex::Regex::new(&pattern).context("Failed to create regex")?;
 
         if let Some(captures) = re.captures(&xml_text) {
             let rate_str = captures.get(1).unwrap().as_str();
-            let rate: f64 = rate_str.parse()
-                .context("Failed to parse exchange rate")?;
+            let rate: f64 = rate_str.parse().context("Failed to parse exchange rate")?;
             Ok(rate)
         } else {
             anyhow::bail!("Currency {} not found in ECB data", currency)
@@ -140,10 +140,9 @@ impl CurrencyConverter {
             "THB".to_string(),
             "PHP".to_string(),
         ];
-        
+
         Ok(currencies)
     }
-
 }
 
 /// Format currency amount with appropriate symbol and decimals
@@ -192,7 +191,6 @@ mod tests {
         let result = converter.convert(100.0, "EUR", "EUR").await.unwrap();
         assert_eq!(result, 100.0);
     }
-
 
     #[test]
     fn test_currency_formatting_usd() {

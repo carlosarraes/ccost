@@ -3,17 +3,15 @@ use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{
-        Block, Borders, Clear, List, ListItem, Paragraph,
-    },
-    Frame, Terminal,
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 use std::collections::VecDeque;
 use std::io;
@@ -53,7 +51,7 @@ impl Default for DashboardState {
             message_tokens: VecDeque::new(),
             refresh_rate: Duration::from_millis(200),
             expensive_threshold: 0.10,
-            max_events: 50, // Reduced to prevent log overflow
+            max_events: 50,  // Reduced to prevent log overflow
             max_history: 60, // Keep 60 data points for sparklines
             text_selection: TextSelectionHandler::new(),
         }
@@ -73,13 +71,21 @@ impl DashboardState {
 
     pub fn add_event(&mut self, event: WatchEvent) {
         // Update session tracker and track individual message costs
-        if let WatchEvent::NewMessage { tokens, cost, model, project, .. } = &event {
-            self.session_tracker.update_activity(project, *tokens, *cost, model);
-            
+        if let WatchEvent::NewMessage {
+            tokens,
+            cost,
+            model,
+            project,
+            ..
+        } = &event
+        {
+            self.session_tracker
+                .update_activity(project, *tokens, *cost, model);
+
             // Track individual message costs for sparklines (not cumulative)
             self.message_costs.push_back(*cost);
             self.message_tokens.push_back(*tokens as u64);
-            
+
             if self.message_costs.len() > self.max_history {
                 self.message_costs.pop_front();
             }
@@ -104,7 +110,6 @@ impl DashboardState {
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
     }
-
 
     pub fn reset(&mut self) {
         self.events.clear();
@@ -171,24 +176,34 @@ impl Dashboard {
         Ok(())
     }
 
-    pub async fn run_with_events(&mut self, event_receiver: tokio::sync::mpsc::UnboundedReceiver<WatchEvent>) -> Result<()> {
+    pub async fn run_with_events(
+        &mut self,
+        event_receiver: tokio::sync::mpsc::UnboundedReceiver<WatchEvent>,
+    ) -> Result<()> {
         let (reset_sender, _reset_receiver) = tokio::sync::mpsc::unbounded_channel();
-        self.run_with_events_and_reset(event_receiver, reset_sender).await
+        self.run_with_events_and_reset(event_receiver, reset_sender)
+            .await
     }
 
-    pub async fn run_with_events_and_reset(&mut self, mut event_receiver: tokio::sync::mpsc::UnboundedReceiver<WatchEvent>, reset_sender: tokio::sync::mpsc::UnboundedSender<()>) -> Result<()> {
-        use tokio::time::{interval, Duration};
-        
-        let mut refresh_timer = interval(Duration::from_millis(self.state.refresh_rate.as_millis() as u64));
+    pub async fn run_with_events_and_reset(
+        &mut self,
+        mut event_receiver: tokio::sync::mpsc::UnboundedReceiver<WatchEvent>,
+        reset_sender: tokio::sync::mpsc::UnboundedSender<()>,
+    ) -> Result<()> {
+        use tokio::time::{Duration, interval};
+
+        let mut refresh_timer = interval(Duration::from_millis(
+            self.state.refresh_rate.as_millis() as u64,
+        ));
         let mut last_terminal_size = self.terminal.size()?;
-        
+
         loop {
             tokio::select! {
                 // Handle incoming watch events
                 Some(watch_event) = event_receiver.recv() => {
                     self.state.add_event(watch_event);
                 }
-                
+
                 // Handle keyboard input and drawing
                 _ = refresh_timer.tick() => {
                     // Check if terminal size changed and force redraw if needed
@@ -199,7 +214,7 @@ impl Dashboard {
                         // Force a full redraw on terminal resize
                         self.terminal.clear()?;
                     }
-                    
+
                     if !self.state.paused || size_changed {
                         self.draw()?;
                     }
@@ -245,7 +260,7 @@ impl Dashboard {
                                 // We need to calculate the activity area bounds to pass to the handler
                                 let terminal_size = self.terminal.size()?;
                                 let activity_area = self.calculate_recent_activity_area(terminal_size);
-                                
+
                                 let _ = self.state.text_selection.handle_mouse_event(
                                     mouse_event,
                                     activity_area,
@@ -311,30 +326,45 @@ impl Dashboard {
         let stats = self.state.session_tracker.get_session_statistics();
         let uptime = self.state.uptime();
         let uptime_str = format_duration(uptime);
-        
+
         let status = if self.state.paused { " [PAUSED]" } else { "" };
-        
+
         let header_text = vec![
             Line::from(vec![
-                Span::styled("ccost Watch Mode", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(status, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "ccost Watch Mode",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    status,
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Uptime: "),
                 Span::styled(uptime_str, Style::default().fg(Color::Green)),
                 Span::raw(" | Active Sessions: "),
-                Span::styled(stats.active_sessions.to_string(), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    stats.active_sessions.to_string(),
+                    Style::default().fg(Color::Yellow),
+                ),
                 Span::raw(" | Total Cost: "),
-                Span::styled(format!("${:.4}", stats.total_cost), Style::default().fg(Color::Green)),
+                Span::styled(
+                    format!("${:.4}", stats.total_cost),
+                    Style::default().fg(Color::Green),
+                ),
             ]),
         ];
 
-        let header = Paragraph::new(header_text)
-            .block(Block::default().borders(Borders::ALL).title("Real-time Claude Usage Monitor"));
+        let header = Paragraph::new(header_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Real-time Claude Usage Monitor"),
+        );
         f.render_widget(header, area);
     }
-
-
 
     fn render_overview_content(&self, f: &mut Frame, area: Rect) {
         let chunks = Layout::default()
@@ -349,7 +379,7 @@ impl Dashboard {
 
         // Real-time metrics
         self.render_metrics_panel(f, top_chunks[0]);
-        
+
         // Active sessions (replaces cost sparkline)
         self.render_sessions_panel(f, top_chunks[1]);
 
@@ -359,27 +389,42 @@ impl Dashboard {
 
     fn render_metrics_panel(&self, f: &mut Frame, area: Rect) {
         let stats = self.state.session_tracker.get_session_statistics();
-        
+
         let metrics_text = vec![
             Line::from(vec![
                 Span::raw("Active Sessions: "),
-                Span::styled(stats.active_sessions.to_string(), Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    stats.active_sessions.to_string(),
+                    Style::default().fg(Color::Yellow),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Total Messages: "),
-                Span::styled(stats.total_messages.to_string(), Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    stats.total_messages.to_string(),
+                    Style::default().fg(Color::Cyan),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Total Tokens: "),
-                Span::styled(format!("{}", stats.total_tokens), Style::default().fg(Color::Blue)),
+                Span::styled(
+                    format!("{}", stats.total_tokens),
+                    Style::default().fg(Color::Blue),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Total Cost: "),
-                Span::styled(format!("${:.4}", stats.total_cost), Style::default().fg(Color::Green)),
+                Span::styled(
+                    format!("${:.4}", stats.total_cost),
+                    Style::default().fg(Color::Green),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("Avg Cost/Session: "),
-                Span::styled(format!("${:.4}", stats.average_cost_per_session), Style::default().fg(Color::Magenta)),
+                Span::styled(
+                    format!("${:.4}", stats.average_cost_per_session),
+                    Style::default().fg(Color::Magenta),
+                ),
             ]),
         ];
 
@@ -390,10 +435,14 @@ impl Dashboard {
 
     fn render_sessions_panel(&self, f: &mut Frame, area: Rect) {
         let active_sessions = self.state.session_tracker.get_active_sessions();
-        
+
         if active_sessions.is_empty() {
             let placeholder = Paragraph::new("No active sessions")
-                .block(Block::default().borders(Borders::ALL).title("Active Sessions"))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Active Sessions"),
+                )
                 .alignment(Alignment::Center);
             f.render_widget(placeholder, area);
             return;
@@ -402,7 +451,7 @@ impl Dashboard {
         // Take only the most recent/active sessions that fit
         let available_height = area.height.saturating_sub(2); // Account for borders
         let max_sessions = (available_height as usize / 2).max(1); // 2 lines per session
-        
+
         let session_items: Vec<ListItem> = active_sessions
             .iter()
             .take(max_sessions)
@@ -413,16 +462,25 @@ impl Dashboard {
                 } else {
                     Color::Green
                 };
-                
+
                 ListItem::new(vec![
-                    Line::from(vec![
-                        Span::styled(format!("📁 {}", session.project), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                    ]),
+                    Line::from(vec![Span::styled(
+                        format!("📁 {}", session.project),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )]),
                     Line::from(vec![
                         Span::raw("   "),
-                        Span::styled(format!("${:.4}", session.total_cost), Style::default().fg(cost_color)),
+                        Span::styled(
+                            format!("${:.4}", session.total_cost),
+                            Style::default().fg(cost_color),
+                        ),
                         Span::raw(" | "),
-                        Span::styled(format!("{} msg", session.message_count), Style::default().fg(Color::Blue)),
+                        Span::styled(
+                            format!("{} msg", session.message_count),
+                            Style::default().fg(Color::Blue),
+                        ),
                         Span::raw(" | "),
                         Span::styled(duration, Style::default().fg(Color::Yellow)),
                     ]),
@@ -430,8 +488,11 @@ impl Dashboard {
             })
             .collect();
 
-        let sessions_list = List::new(session_items)
-            .block(Block::default().borders(Borders::ALL).title("Active Sessions"));
+        let sessions_list = List::new(session_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Active Sessions"),
+        );
         f.render_widget(sessions_list, area);
     }
 
@@ -439,15 +500,17 @@ impl Dashboard {
         // Calculate how many events we can display based on available height
         let available_height = area.height.saturating_sub(2); // Account for borders
         let max_events = (available_height as usize).saturating_sub(1).max(1); // At least show 1
-        
-        let recent_events: Vec<ListItem> = self.state.events
+
+        let recent_events: Vec<ListItem> = self
+            .state
+            .events
             .iter()
             .rev()
             .take(max_events)
             .map(|event| {
                 let (icon, color, text) = format_event_for_list(event);
                 let timestamp = event.get_timestamp().format("%H:%M:%S");
-                
+
                 // Truncate long messages to fit in the available width
                 let available_width = area.width.saturating_sub(20); // Account for timestamp and icon
                 let truncated_text = if text.len() > available_width as usize {
@@ -455,20 +518,25 @@ impl Dashboard {
                 } else {
                     text
                 };
-                
+
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("{} ", icon), Style::default().fg(color)),
-                    Span::styled(format!("[{}] ", timestamp), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("[{}] ", timestamp),
+                        Style::default().fg(Color::Gray),
+                    ),
                     Span::raw(truncated_text),
                 ]))
             })
             .collect();
 
-        let events_list = List::new(recent_events)
-            .block(Block::default().borders(Borders::ALL).title("Recent Activity"));
+        let events_list = List::new(recent_events).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Recent Activity"),
+        );
         f.render_widget(events_list, area);
     }
-
 
     fn render_status_line(&self, f: &mut Frame, area: Rect) {
         let selection_text = if self.state.text_selection.has_selection() {
@@ -476,11 +544,17 @@ impl Dashboard {
         } else {
             ""
         };
-        
+
         let status_text = if self.state.paused {
-            format!("[PAUSED] Press 'p' to resume | 'q' to quit | 'h' for help | 'r' to reset | Mouse to select{}", selection_text)
+            format!(
+                "[PAUSED] Press 'p' to resume | 'q' to quit | 'h' for help | 'r' to reset | Mouse to select{}",
+                selection_text
+            )
         } else {
-            format!("Press 'p' to pause | 'q' to quit | 'h' for help | 'r' to reset | Mouse to select{}", selection_text)
+            format!(
+                "Press 'p' to pause | 'q' to quit | 'h' for help | 'r' to reset | Mouse to select{}",
+                selection_text
+            )
         };
 
         let status = Paragraph::new(status_text)
@@ -491,11 +565,16 @@ impl Dashboard {
 
     fn render_help_popup(&self, f: &mut Frame) {
         let area = centered_rect(60, 70, f.size());
-        
+
         f.render_widget(Clear, area);
-        
+
         let help_text = vec![
-            Line::from(Span::styled("ccost Watch Mode - Help", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "ccost Watch Mode - Help",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Line::raw(""),
             Line::raw("Controls:"),
             Line::raw("  p / Space    - Pause/Resume"),
@@ -569,30 +648,85 @@ impl Drop for Dashboard {
 
 fn format_event_for_list(event: &WatchEvent) -> (&'static str, Color, String) {
     match event {
-        WatchEvent::NewMessage { tokens, cost, model, project, .. } => {
+        WatchEvent::NewMessage {
+            tokens,
+            cost,
+            model,
+            project,
+            ..
+        } => {
             let icon = "💬";
-            let color = if *cost > 0.05 { Color::Red } else if *cost > 0.01 { Color::Yellow } else { Color::Green };
+            let color = if *cost > 0.05 {
+                Color::Red
+            } else if *cost > 0.01 {
+                Color::Yellow
+            } else {
+                Color::Green
+            };
             let text = format!("{}: {} tokens, ${:.4} ({})", project, tokens, cost, model);
             (icon, color, text)
         }
-        WatchEvent::ModelSwitch { from, to, project, .. } => {
-            ("🔄", Color::Blue, format!("{}: Model switch {} → {}", project, from, to))
-        }
-        WatchEvent::CacheHit { saved_tokens, saved_cost, project, .. } => {
-            ("⚡", Color::Green, format!("{}: Cache hit! Saved {} tokens (${:.4})", project, saved_tokens, saved_cost))
-        }
-        WatchEvent::ExpensiveConversation { cost, threshold, project, .. } => {
-            ("⚠️", Color::Red, format!("{}: Expensive conversation ${:.4} (>${:.2})", project, cost, threshold))
-        }
+        WatchEvent::ModelSwitch {
+            from, to, project, ..
+        } => (
+            "🔄",
+            Color::Blue,
+            format!("{}: Model switch {} → {}", project, from, to),
+        ),
+        WatchEvent::CacheHit {
+            saved_tokens,
+            saved_cost,
+            project,
+            ..
+        } => (
+            "⚡",
+            Color::Green,
+            format!(
+                "{}: Cache hit! Saved {} tokens (${:.4})",
+                project, saved_tokens, saved_cost
+            ),
+        ),
+        WatchEvent::ExpensiveConversation {
+            cost,
+            threshold,
+            project,
+            ..
+        } => (
+            "⚠️",
+            Color::Red,
+            format!(
+                "{}: Expensive conversation ${:.4} (>${:.2})",
+                project, cost, threshold
+            ),
+        ),
         WatchEvent::SessionStart { project, .. } => {
             ("🚀", Color::Cyan, format!("{}: Session started", project))
         }
-        WatchEvent::SessionEnd { project, duration, total_cost, .. } => {
-            ("🏁", Color::Gray, format!("{}: Session ended after {} (${:.4})", project, format_duration(*duration), total_cost))
-        }
-        WatchEvent::ProjectActivity { project, message_count, cost, .. } => {
-            ("📊", Color::Magenta, format!("{}: {} messages, ${:.4}", project, message_count, cost))
-        }
+        WatchEvent::SessionEnd {
+            project,
+            duration,
+            total_cost,
+            ..
+        } => (
+            "🏁",
+            Color::Gray,
+            format!(
+                "{}: Session ended after {} (${:.4})",
+                project,
+                format_duration(*duration),
+                total_cost
+            ),
+        ),
+        WatchEvent::ProjectActivity {
+            project,
+            message_count,
+            cost,
+            ..
+        } => (
+            "📊",
+            Color::Magenta,
+            format!("{}: {} messages, ${:.4}", project, message_count, cost),
+        ),
     }
 }
 
@@ -651,30 +785,45 @@ fn render_header_static(f: &mut Frame, area: Rect, state: &DashboardState) {
     let stats = state.session_tracker.get_session_statistics();
     let uptime = state.uptime();
     let uptime_str = format_duration(uptime);
-    
+
     let status = if state.paused { " [PAUSED]" } else { "" };
-    
+
     let header_text = vec![
         Line::from(vec![
-            Span::styled("ccost Watch Mode", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(status, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "ccost Watch Mode",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                status,
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(vec![
             Span::raw("Uptime: "),
             Span::styled(uptime_str, Style::default().fg(Color::Green)),
             Span::raw(" | Active Sessions: "),
-            Span::styled(stats.active_sessions.to_string(), Style::default().fg(Color::Yellow)),
+            Span::styled(
+                stats.active_sessions.to_string(),
+                Style::default().fg(Color::Yellow),
+            ),
             Span::raw(" | Total Cost: "),
-            Span::styled(format!("${:.4}", stats.total_cost), Style::default().fg(Color::Green)),
+            Span::styled(
+                format!("${:.4}", stats.total_cost),
+                Style::default().fg(Color::Green),
+            ),
         ]),
     ];
 
-    let header = Paragraph::new(header_text)
-        .block(Block::default().borders(Borders::ALL).title("Real-time Claude Usage Monitor"));
+    let header = Paragraph::new(header_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Real-time Claude Usage Monitor"),
+    );
     f.render_widget(header, area);
 }
-
-
 
 fn render_overview_content_static(f: &mut Frame, area: Rect, state: &DashboardState) {
     let chunks = Layout::default()
@@ -689,7 +838,7 @@ fn render_overview_content_static(f: &mut Frame, area: Rect, state: &DashboardSt
 
     // Real-time metrics
     render_metrics_panel_static(f, top_chunks[0], state);
-    
+
     // Active sessions (replaces cost sparkline)
     render_sessions_panel_static(f, top_chunks[1], state);
 
@@ -699,27 +848,42 @@ fn render_overview_content_static(f: &mut Frame, area: Rect, state: &DashboardSt
 
 fn render_metrics_panel_static(f: &mut Frame, area: Rect, state: &DashboardState) {
     let stats = state.session_tracker.get_session_statistics();
-    
+
     let metrics_text = vec![
         Line::from(vec![
             Span::raw("Active Sessions: "),
-            Span::styled(stats.active_sessions.to_string(), Style::default().fg(Color::Yellow)),
+            Span::styled(
+                stats.active_sessions.to_string(),
+                Style::default().fg(Color::Yellow),
+            ),
         ]),
         Line::from(vec![
             Span::raw("Total Messages: "),
-            Span::styled(stats.total_messages.to_string(), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                stats.total_messages.to_string(),
+                Style::default().fg(Color::Cyan),
+            ),
         ]),
         Line::from(vec![
             Span::raw("Total Tokens: "),
-            Span::styled(format!("{}", stats.total_tokens), Style::default().fg(Color::Blue)),
+            Span::styled(
+                format!("{}", stats.total_tokens),
+                Style::default().fg(Color::Blue),
+            ),
         ]),
         Line::from(vec![
             Span::raw("Total Cost: "),
-            Span::styled(format!("${:.4}", stats.total_cost), Style::default().fg(Color::Green)),
+            Span::styled(
+                format!("${:.4}", stats.total_cost),
+                Style::default().fg(Color::Green),
+            ),
         ]),
         Line::from(vec![
             Span::raw("Avg Cost/Session: "),
-            Span::styled(format!("${:.4}", stats.average_cost_per_session), Style::default().fg(Color::Magenta)),
+            Span::styled(
+                format!("${:.4}", stats.average_cost_per_session),
+                Style::default().fg(Color::Magenta),
+            ),
         ]),
     ];
 
@@ -730,10 +894,14 @@ fn render_metrics_panel_static(f: &mut Frame, area: Rect, state: &DashboardState
 
 fn render_sessions_panel_static(f: &mut Frame, area: Rect, state: &DashboardState) {
     let active_sessions = state.session_tracker.get_active_sessions();
-    
+
     if active_sessions.is_empty() {
         let placeholder = Paragraph::new("No active sessions")
-            .block(Block::default().borders(Borders::ALL).title("Active Sessions"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Active Sessions"),
+            )
             .alignment(Alignment::Center);
         f.render_widget(placeholder, area);
         return;
@@ -742,7 +910,7 @@ fn render_sessions_panel_static(f: &mut Frame, area: Rect, state: &DashboardStat
     // Take only the most recent/active sessions that fit
     let available_height = area.height.saturating_sub(2); // Account for borders
     let max_sessions = (available_height as usize / 2).max(1); // 2 lines per session
-    
+
     let session_items: Vec<ListItem> = active_sessions
         .iter()
         .take(max_sessions)
@@ -753,16 +921,25 @@ fn render_sessions_panel_static(f: &mut Frame, area: Rect, state: &DashboardStat
             } else {
                 Color::Green
             };
-            
+
             ListItem::new(vec![
-                Line::from(vec![
-                    Span::styled(format!("📁 {}", session.project), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                ]),
+                Line::from(vec![Span::styled(
+                    format!("📁 {}", session.project),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )]),
                 Line::from(vec![
                     Span::raw("   "),
-                    Span::styled(format!("${:.4}", session.total_cost), Style::default().fg(cost_color)),
+                    Span::styled(
+                        format!("${:.4}", session.total_cost),
+                        Style::default().fg(cost_color),
+                    ),
                     Span::raw(" | "),
-                    Span::styled(format!("{} msg", session.message_count), Style::default().fg(Color::Blue)),
+                    Span::styled(
+                        format!("{} msg", session.message_count),
+                        Style::default().fg(Color::Blue),
+                    ),
                     Span::raw(" | "),
                     Span::styled(duration, Style::default().fg(Color::Yellow)),
                 ]),
@@ -770,8 +947,11 @@ fn render_sessions_panel_static(f: &mut Frame, area: Rect, state: &DashboardStat
         })
         .collect();
 
-    let sessions_list = List::new(session_items)
-        .block(Block::default().borders(Borders::ALL).title("Active Sessions"));
+    let sessions_list = List::new(session_items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Active Sessions"),
+    );
     f.render_widget(sessions_list, area);
 }
 
@@ -779,15 +959,16 @@ fn render_recent_activity_static(f: &mut Frame, area: Rect, state: &DashboardSta
     // Calculate how many events we can display based on available height
     let available_height = area.height.saturating_sub(2); // Account for borders
     let max_events = (available_height as usize).saturating_sub(1).max(1); // At least show 1
-    
-    let recent_events: Vec<ListItem> = state.events
+
+    let recent_events: Vec<ListItem> = state
+        .events
         .iter()
         .rev()
         .take(max_events)
         .map(|event| {
             let (icon, color, text) = format_event_for_list(event);
             let timestamp = event.get_timestamp().format("%H:%M:%S");
-            
+
             // Truncate long messages to fit in the available width
             let available_width = area.width.saturating_sub(20); // Account for timestamp and icon
             let truncated_text = if text.len() > available_width as usize {
@@ -795,21 +976,25 @@ fn render_recent_activity_static(f: &mut Frame, area: Rect, state: &DashboardSta
             } else {
                 text
             };
-            
+
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{} ", icon), Style::default().fg(color)),
-                Span::styled(format!("[{}] ", timestamp), Style::default().fg(Color::Gray)),
+                Span::styled(
+                    format!("[{}] ", timestamp),
+                    Style::default().fg(Color::Gray),
+                ),
                 Span::raw(truncated_text),
             ]))
         })
         .collect();
 
-    let events_list = List::new(recent_events)
-        .block(Block::default().borders(Borders::ALL).title("Recent Activity"));
+    let events_list = List::new(recent_events).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Recent Activity"),
+    );
     f.render_widget(events_list, area);
 }
-
-
 
 fn render_status_line_static(f: &mut Frame, area: Rect, state: &DashboardState) {
     let status_text = if state.paused {
@@ -826,11 +1011,16 @@ fn render_status_line_static(f: &mut Frame, area: Rect, state: &DashboardState) 
 
 fn render_help_popup_static(f: &mut Frame) {
     let area = centered_rect(60, 70, f.size());
-    
+
     f.render_widget(Clear, area);
-    
+
     let help_text = vec![
-        Line::from(Span::styled("ccost Watch Mode - Help", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "ccost Watch Mode - Help",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::raw(""),
         Line::raw("Controls:"),
         Line::raw("  p / Space    - Pause/Resume"),

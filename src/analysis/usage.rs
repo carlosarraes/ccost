@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-use anyhow::{Result, Context};
+use crate::parser::jsonl::{Usage, UsageData};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use crate::parser::jsonl::{UsageData, Usage};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CostCalculationMode {
-    Auto,       // Use embedded costUSD if available, otherwise calculate
-    Calculate,  // Always calculate cost from tokens * pricing  
-    Display,    // Use embedded costUSD only, 0 if missing
+    Auto,      // Use embedded costUSD if available, otherwise calculate
+    Calculate, // Always calculate cost from tokens * pricing
+    Display,   // Use embedded costUSD only, 0 if missing
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -53,8 +53,12 @@ impl UsageTracker {
         }
     }
 
-
-    pub fn calculate_cost(&self, usage: &Usage, model_name: &str, pricing_manager: &crate::models::PricingManager) -> Result<f64> {
+    pub fn calculate_cost(
+        &self,
+        usage: &Usage,
+        model_name: &str,
+        pricing_manager: &crate::models::PricingManager,
+    ) -> Result<f64> {
         let input_tokens = usage.input_tokens.unwrap_or(0);
         let output_tokens = usage.output_tokens.unwrap_or(0);
         let cache_creation_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
@@ -71,7 +75,12 @@ impl UsageTracker {
         Ok(cost)
     }
 
-    pub fn calculate_usage_with_projects_filtered(&self, enhanced_data: Vec<(UsageData, String)>, pricing_manager: &crate::models::PricingManager, filter: &UsageFilter) -> Result<Vec<ProjectUsage>> {
+    pub fn calculate_usage_with_projects_filtered(
+        &self,
+        enhanced_data: Vec<(UsageData, String)>,
+        pricing_manager: &crate::models::PricingManager,
+        filter: &UsageFilter,
+    ) -> Result<Vec<ProjectUsage>> {
         let mut projects: HashMap<String, ProjectUsage> = HashMap::new();
 
         for (message, project_name) in enhanced_data {
@@ -102,15 +111,17 @@ impl UsageTracker {
             let model_name = self.extract_model_from_message(&message);
 
             // Get or create project usage entry
-            let project_usage = projects
-                .entry(project_name.clone())
-                .or_insert_with(|| ProjectUsage {
-                    project_name: project_name.clone(),
-                    ..Default::default()
-                });
+            let project_usage =
+                projects
+                    .entry(project_name.clone())
+                    .or_insert_with(|| ProjectUsage {
+                        project_name: project_name.clone(),
+                        ..Default::default()
+                    });
 
             // Get or create model usage entry
-            let model_usage = project_usage.model_usage
+            let model_usage = project_usage
+                .model_usage
                 .entry(model_name.clone())
                 .or_insert_with(|| ModelUsage {
                     model_name: model_name.clone(),
@@ -164,7 +175,11 @@ impl UsageTracker {
         Ok(projects.into_values().collect())
     }
 
-    pub fn calculate_usage_with_projects(&self, enhanced_data: Vec<(UsageData, String)>, pricing_manager: &crate::models::PricingManager) -> Result<Vec<ProjectUsage>> {
+    pub fn calculate_usage_with_projects(
+        &self,
+        enhanced_data: Vec<(UsageData, String)>,
+        pricing_manager: &crate::models::PricingManager,
+    ) -> Result<Vec<ProjectUsage>> {
         let mut projects: HashMap<String, ProjectUsage> = HashMap::new();
 
         for (message, project_name) in enhanced_data {
@@ -178,15 +193,17 @@ impl UsageTracker {
             let model_name = self.extract_model_from_message(&message);
 
             // Get or create project usage entry
-            let project_usage = projects
-                .entry(project_name.clone())
-                .or_insert_with(|| ProjectUsage {
-                    project_name: project_name.clone(),
-                    ..Default::default()
-                });
+            let project_usage =
+                projects
+                    .entry(project_name.clone())
+                    .or_insert_with(|| ProjectUsage {
+                        project_name: project_name.clone(),
+                        ..Default::default()
+                    });
 
             // Get or create model usage entry
-            let model_usage = project_usage.model_usage
+            let model_usage = project_usage
+                .model_usage
                 .entry(model_name.clone())
                 .or_insert_with(|| ModelUsage {
                     model_name: model_name.clone(),
@@ -240,8 +257,6 @@ impl UsageTracker {
         Ok(projects.into_values().collect())
     }
 
-
-
     fn extract_model_from_message(&self, message: &UsageData) -> String {
         message
             .message
@@ -252,14 +267,13 @@ impl UsageTracker {
 
     pub fn parse_timestamp(&self, timestamp: &str) -> Result<DateTime<Utc>> {
         use chrono::DateTime;
-        
+
         // Try to parse as RFC 3339 (ISO 8601)
         DateTime::parse_from_rfc3339(timestamp)
             .map(|dt| dt.with_timezone(&Utc))
             .or_else(|_| {
                 // Try to parse as RFC 2822
-                DateTime::parse_from_rfc2822(timestamp)
-                    .map(|dt| dt.with_timezone(&Utc))
+                DateTime::parse_from_rfc2822(timestamp).map(|dt| dt.with_timezone(&Utc))
             })
             .or_else(|_| {
                 // Try to parse with different format
@@ -316,34 +330,28 @@ mod tests {
     use crate::parser::jsonl::Message;
     use chrono::Datelike;
 
-
     #[test]
     fn test_usage_tracker_creation() {
         let tracker = UsageTracker::new(CostCalculationMode::Auto);
         // Should not panic and create tracker
     }
 
-
-
-
-
-
     #[test]
     fn test_timestamp_parsing() {
         let tracker = UsageTracker::new(CostCalculationMode::Auto);
-        
+
         // Test valid ISO 8601 timestamp
         let valid_timestamp = "2025-06-09T10:00:00Z";
         let parsed = tracker.parse_timestamp(valid_timestamp).unwrap();
         assert_eq!(parsed.year(), 2025);
         assert_eq!(parsed.month(), 6);
         assert_eq!(parsed.day(), 9);
-        
+
         // Test timestamp with timezone
         let tz_timestamp = "2025-06-09T10:00:00+02:00";
         let parsed_tz = tracker.parse_timestamp(tz_timestamp).unwrap();
         assert!(parsed_tz.year() == 2025);
-        
+
         // Test invalid timestamp should error
         let invalid_timestamp = "invalid-timestamp";
         assert!(tracker.parse_timestamp(invalid_timestamp).is_err());
@@ -387,7 +395,7 @@ mod tests {
     #[test]
     fn test_model_extraction() {
         let tracker = UsageTracker::new(CostCalculationMode::Auto);
-        
+
         // Test with model in message
         let message_with_model = create_test_usage_data_local(
             "2025-06-09T10:00:00Z",
@@ -400,10 +408,10 @@ mod tests {
             None,
             Some(0.50),
         );
-        
+
         let model = tracker.extract_model_from_message(&message_with_model);
         assert_eq!(model, "claude-sonnet-4");
-        
+
         // Test with no message/model
         let message_no_model = UsageData {
             timestamp: Some("2025-06-09T10:00:00Z".to_string()),
@@ -421,7 +429,7 @@ mod tests {
             cwd: None,
             original_cwd: None,
         };
-        
+
         let model = tracker.extract_model_from_message(&message_no_model);
         assert_eq!(model, "unknown");
     }
@@ -429,18 +437,17 @@ mod tests {
     #[test]
     fn test_usage_filtering() {
         let tracker = UsageTracker::new(CostCalculationMode::Auto);
-        
+
         // Test filter by project name
         let filter = UsageFilter {
             project_name: Some("specific_project".to_string()),
             ..Default::default()
         };
-        
+
         // This test will verify the filter structure is correct
         assert_eq!(filter.project_name, Some("specific_project".to_string()));
         assert!(filter.model_name.is_none());
         assert!(filter.since.is_none());
         assert!(filter.until.is_none());
     }
-
 }

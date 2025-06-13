@@ -1,5 +1,5 @@
-use crate::config::Config;
 use crate::cli::ConfigAction;
+use crate::config::Config;
 
 pub fn handle_config_action(action: ConfigAction, json_output: bool) {
     match action {

@@ -4,9 +4,9 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProjectSortBy {
-    Name,     // Default alphabetical sorting
-    Cost,     // Sort by total cost (highest first) 
-    Tokens,   // Sort by total token usage (highest first)
+    Name,   // Default alphabetical sorting
+    Cost,   // Sort by total cost (highest first)
+    Tokens, // Sort by total token usage (highest first)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -39,7 +39,11 @@ impl ProjectAnalyzer {
         Self
     }
 
-    pub fn analyze_projects(&self, project_usage: Vec<ProjectUsage>, sort_by: ProjectSortBy) -> Vec<ProjectSummary> {
+    pub fn analyze_projects(
+        &self,
+        project_usage: Vec<ProjectUsage>,
+        sort_by: ProjectSortBy,
+    ) -> Vec<ProjectSummary> {
         let mut summaries: Vec<ProjectSummary> = project_usage
             .iter()
             .map(ProjectSummary::from_project_usage)
@@ -51,11 +55,19 @@ impl ProjectAnalyzer {
                 summaries.sort_by(|a, b| a.project_name.cmp(&b.project_name));
             }
             ProjectSortBy::Cost => {
-                summaries.sort_by(|a, b| b.total_cost_usd.partial_cmp(&a.total_cost_usd).unwrap_or(std::cmp::Ordering::Equal));
+                summaries.sort_by(|a, b| {
+                    b.total_cost_usd
+                        .partial_cmp(&a.total_cost_usd)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             ProjectSortBy::Tokens => {
-                let total_tokens_a = |summary: &ProjectSummary| summary.total_input_tokens + summary.total_output_tokens;
-                let total_tokens_b = |summary: &ProjectSummary| summary.total_input_tokens + summary.total_output_tokens;
+                let total_tokens_a = |summary: &ProjectSummary| {
+                    summary.total_input_tokens + summary.total_output_tokens
+                };
+                let total_tokens_b = |summary: &ProjectSummary| {
+                    summary.total_input_tokens + summary.total_output_tokens
+                };
                 summaries.sort_by(|a, b| total_tokens_b(b).cmp(&total_tokens_a(a)));
             }
         }
@@ -78,7 +90,11 @@ impl ProjectAnalyzer {
         // Find highest cost project
         let highest_cost_project = summaries
             .iter()
-            .max_by(|a, b| a.total_cost_usd.partial_cmp(&b.total_cost_usd).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.total_cost_usd
+                    .partial_cmp(&b.total_cost_usd)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|s| s.project_name.clone());
 
         // Find most active project (by message count)
@@ -130,8 +146,8 @@ impl Default for ProjectStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::analysis::usage::ModelUsage;
+    use std::collections::HashMap;
 
     fn create_test_project_usage(
         name: &str,
@@ -142,7 +158,7 @@ mod tests {
         models: &[&str],
     ) -> ProjectUsage {
         let mut model_usage = HashMap::new();
-        
+
         for model_name in models {
             model_usage.insert(
                 model_name.to_string(),
@@ -182,7 +198,7 @@ mod tests {
         );
 
         let summary = ProjectSummary::from_project_usage(&project_usage);
-        
+
         assert_eq!(summary.project_name, "test-project");
         assert_eq!(summary.total_input_tokens, 1000);
         assert_eq!(summary.total_output_tokens, 500);
@@ -200,7 +216,7 @@ mod tests {
     #[test]
     fn test_sorting_by_name() {
         let analyzer = ProjectAnalyzer::new();
-        
+
         let projects = vec![
             create_test_project_usage("zebra", 100, 50, 1.0, 5, &["claude-sonnet-4"]),
             create_test_project_usage("alpha", 200, 100, 2.0, 10, &["claude-sonnet-4"]),
@@ -208,7 +224,7 @@ mod tests {
         ];
 
         let summaries = analyzer.analyze_projects(projects, ProjectSortBy::Name);
-        
+
         assert_eq!(summaries.len(), 3);
         assert_eq!(summaries[0].project_name, "alpha");
         assert_eq!(summaries[1].project_name, "beta");
@@ -218,7 +234,7 @@ mod tests {
     #[test]
     fn test_sorting_by_cost() {
         let analyzer = ProjectAnalyzer::new();
-        
+
         let projects = vec![
             create_test_project_usage("low-cost", 100, 50, 1.0, 5, &["claude-sonnet-4"]),
             create_test_project_usage("high-cost", 200, 100, 5.0, 10, &["claude-sonnet-4"]),
@@ -226,12 +242,12 @@ mod tests {
         ];
 
         let summaries = analyzer.analyze_projects(projects, ProjectSortBy::Cost);
-        
+
         assert_eq!(summaries.len(), 3);
         assert_eq!(summaries[0].project_name, "high-cost");
         assert_eq!(summaries[1].project_name, "medium-cost");
         assert_eq!(summaries[2].project_name, "low-cost");
-        
+
         // Verify costs are in descending order
         assert!(summaries[0].total_cost_usd >= summaries[1].total_cost_usd);
         assert!(summaries[1].total_cost_usd >= summaries[2].total_cost_usd);
@@ -240,25 +256,25 @@ mod tests {
     #[test]
     fn test_sorting_by_tokens() {
         let analyzer = ProjectAnalyzer::new();
-        
+
         let projects = vec![
-            create_test_project_usage("low-tokens", 100, 50, 1.0, 5, &["claude-sonnet-4"]),     // 150 total
+            create_test_project_usage("low-tokens", 100, 50, 1.0, 5, &["claude-sonnet-4"]), // 150 total
             create_test_project_usage("high-tokens", 1000, 500, 2.0, 10, &["claude-sonnet-4"]), // 1500 total
             create_test_project_usage("medium-tokens", 300, 200, 1.5, 7, &["claude-sonnet-4"]), // 500 total
         ];
 
         let summaries = analyzer.analyze_projects(projects, ProjectSortBy::Tokens);
-        
+
         assert_eq!(summaries.len(), 3);
         assert_eq!(summaries[0].project_name, "high-tokens");
         assert_eq!(summaries[1].project_name, "medium-tokens");
         assert_eq!(summaries[2].project_name, "low-tokens");
-        
+
         // Verify token counts are in descending order
         let total_tokens_0 = summaries[0].total_input_tokens + summaries[0].total_output_tokens;
         let total_tokens_1 = summaries[1].total_input_tokens + summaries[1].total_output_tokens;
         let total_tokens_2 = summaries[2].total_input_tokens + summaries[2].total_output_tokens;
-        
+
         assert!(total_tokens_0 >= total_tokens_1);
         assert!(total_tokens_1 >= total_tokens_2);
     }
@@ -266,16 +282,23 @@ mod tests {
     #[test]
     fn test_project_statistics() {
         let analyzer = ProjectAnalyzer::new();
-        
+
         let projects = vec![
             create_test_project_usage("project-a", 100, 50, 1.0, 5, &["claude-sonnet-4"]),
-            create_test_project_usage("project-b", 200, 100, 3.0, 10, &["claude-sonnet-4", "claude-opus-4"]),
+            create_test_project_usage(
+                "project-b",
+                200,
+                100,
+                3.0,
+                10,
+                &["claude-sonnet-4", "claude-opus-4"],
+            ),
             create_test_project_usage("project-c", 300, 150, 2.0, 15, &["claude-haiku-3-5"]),
         ];
 
         let summaries = analyzer.analyze_projects(projects, ProjectSortBy::Name);
         let stats = analyzer.get_project_statistics(&summaries);
-        
+
         assert_eq!(stats.total_projects, 3);
         assert_eq!(stats.total_cost, 6.0);
         assert_eq!(stats.total_input_tokens, 600);
@@ -291,7 +314,7 @@ mod tests {
         let analyzer = ProjectAnalyzer::new();
         let summaries: Vec<ProjectSummary> = vec![];
         let stats = analyzer.get_project_statistics(&summaries);
-        
+
         assert_eq!(stats.total_projects, 0);
         assert_eq!(stats.total_cost, 0.0);
         assert_eq!(stats.total_input_tokens, 0);
@@ -305,14 +328,19 @@ mod tests {
     #[test]
     fn test_single_project_statistics() {
         let analyzer = ProjectAnalyzer::new();
-        
-        let projects = vec![
-            create_test_project_usage("only-project", 1000, 500, 5.5, 20, &["claude-sonnet-4", "claude-opus-4"]),
-        ];
+
+        let projects = vec![create_test_project_usage(
+            "only-project",
+            1000,
+            500,
+            5.5,
+            20,
+            &["claude-sonnet-4", "claude-opus-4"],
+        )];
 
         let summaries = analyzer.analyze_projects(projects, ProjectSortBy::Name);
         let stats = analyzer.get_project_statistics(&summaries);
-        
+
         assert_eq!(stats.total_projects, 1);
         assert_eq!(stats.total_cost, 5.5);
         assert_eq!(stats.total_input_tokens, 1000);
@@ -326,14 +354,14 @@ mod tests {
     #[test]
     fn test_equal_cost_projects_sorting() {
         let analyzer = ProjectAnalyzer::new();
-        
+
         let projects = vec![
             create_test_project_usage("project-a", 100, 50, 2.0, 5, &["claude-sonnet-4"]),
             create_test_project_usage("project-b", 200, 100, 2.0, 10, &["claude-sonnet-4"]),
         ];
 
         let summaries = analyzer.analyze_projects(projects, ProjectSortBy::Cost);
-        
+
         assert_eq!(summaries.len(), 2);
         // When costs are equal, order should be stable
         assert!(summaries[0].total_cost_usd == summaries[1].total_cost_usd);
@@ -342,7 +370,7 @@ mod tests {
     #[test]
     fn test_edge_case_zero_values() {
         let analyzer = ProjectAnalyzer::new();
-        
+
         let projects = vec![
             create_test_project_usage("empty-project", 0, 0, 0.0, 0, &[]),
             create_test_project_usage("normal-project", 100, 50, 1.0, 5, &["claude-sonnet-4"]),
@@ -350,10 +378,13 @@ mod tests {
 
         let summaries = analyzer.analyze_projects(projects, ProjectSortBy::Cost);
         let stats = analyzer.get_project_statistics(&summaries);
-        
+
         assert_eq!(summaries.len(), 2);
         assert_eq!(stats.total_projects, 2);
         assert_eq!(stats.total_cost, 1.0);
-        assert_eq!(stats.highest_cost_project, Some("normal-project".to_string()));
+        assert_eq!(
+            stats.highest_cost_project,
+            Some("normal-project".to_string())
+        );
     }
 }

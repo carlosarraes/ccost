@@ -1,10 +1,10 @@
 // File watcher for monitoring JSONL files
-use anyhow::{Result, Context};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher, Event, EventKind};
+use crate::watch::events::FileEvent;
+use anyhow::{Context, Result};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use tokio::sync::mpsc as tokio_mpsc;
-use crate::watch::events::FileEvent;
 
 pub struct FileWatcher {
     _watcher: RecommendedWatcher,
@@ -17,7 +17,7 @@ impl FileWatcher {
         event_sender: tokio_mpsc::UnboundedSender<FileEvent>,
     ) -> Result<(Self, mpsc::Receiver<notify::Result<Event>>)> {
         let (tx, file_receiver) = mpsc::channel();
-        
+
         let mut watcher = RecommendedWatcher::new(
             move |res| {
                 if let Err(e) = tx.send(res) {
@@ -25,10 +25,12 @@ impl FileWatcher {
                 }
             },
             notify::Config::default(),
-        ).context("Failed to create file watcher")?;
+        )
+        .context("Failed to create file watcher")?;
 
         // Watch the projects directory recursively
-        watcher.watch(&projects_dir, RecursiveMode::Recursive)
+        watcher
+            .watch(&projects_dir, RecursiveMode::Recursive)
             .context("Failed to watch projects directory")?;
 
         let file_watcher = FileWatcher {
@@ -39,7 +41,10 @@ impl FileWatcher {
         Ok((file_watcher, file_receiver))
     }
 
-    pub async fn run_with_receiver(&self, file_receiver: mpsc::Receiver<notify::Result<Event>>) -> Result<()> {
+    pub async fn run_with_receiver(
+        &self,
+        file_receiver: mpsc::Receiver<notify::Result<Event>>,
+    ) -> Result<()> {
         loop {
             // Use try_recv to avoid blocking and check for events periodically
             match file_receiver.try_recv() {
@@ -47,7 +52,9 @@ impl FileWatcher {
                     self.handle_file_event(event).await?;
                 }
                 Ok(Err(e)) => {
-                    let _ = self.event_sender.send(FileEvent::Error(format!("File watch error: {}", e)));
+                    let _ = self
+                        .event_sender
+                        .send(FileEvent::Error(format!("File watch error: {}", e)));
                 }
                 Err(mpsc::TryRecvError::Empty) => {
                     // No events, sleep briefly and continue
@@ -94,15 +101,15 @@ impl FileWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
     use tokio::time::timeout;
 
     #[tokio::test]
     async fn test_file_watcher_creation() {
         let temp_dir = TempDir::new().unwrap();
         let (tx, _rx) = tokio_mpsc::unbounded_channel();
-        
+
         let result = FileWatcher::new(temp_dir.path().to_path_buf(), tx);
         assert!(result.is_ok());
     }
@@ -111,22 +118,22 @@ mod tests {
     async fn test_jsonl_file_detection() {
         let temp_dir = TempDir::new().unwrap();
         let (tx, mut rx) = tokio_mpsc::unbounded_channel();
-        
+
         let (watcher, file_receiver) = FileWatcher::new(temp_dir.path().to_path_buf(), tx).unwrap();
-        
+
         // Start watcher in background
         let watcher_handle = tokio::spawn(async move {
             let _ = watcher.run_with_receiver(file_receiver).await;
         });
-        
+
         // Create a JSONL file
         let jsonl_path = temp_dir.path().join("test.jsonl");
         fs::write(&jsonl_path, "{}").unwrap();
-        
+
         // Wait for file event with timeout
         let event = timeout(tokio::time::Duration::from_secs(2), rx.recv()).await;
         assert!(event.is_ok());
-        
+
         match event.unwrap() {
             Some(FileEvent::FileCreated(path)) => {
                 assert_eq!(path, jsonl_path);
@@ -137,7 +144,7 @@ mod tests {
             }
             other => panic!("Unexpected event: {:?}", other),
         }
-        
+
         watcher_handle.abort();
     }
 
@@ -145,8 +152,9 @@ mod tests {
     fn test_is_jsonl_file() {
         let temp_dir = TempDir::new().unwrap();
         let (tx, _rx) = tokio_mpsc::unbounded_channel();
-        let (watcher, _file_receiver) = FileWatcher::new(temp_dir.path().to_path_buf(), tx).unwrap();
-        
+        let (watcher, _file_receiver) =
+            FileWatcher::new(temp_dir.path().to_path_buf(), tx).unwrap();
+
         assert!(watcher.is_jsonl_file(Path::new("test.jsonl")));
         assert!(watcher.is_jsonl_file(Path::new("test.JSONL")));
         assert!(!watcher.is_jsonl_file(Path::new("test.json")));

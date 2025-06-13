@@ -1,8 +1,8 @@
 // ccost: Claude Cost Tracking Tool
 //
 // No additional analysis imports needed in main.rs
-use config::Config;
 use clap::Parser;
+use config::Config;
 
 // Module declarations
 mod analysis;
@@ -18,22 +18,11 @@ mod watch;
 
 // Import CLI types and commands
 use cli::args::{Cli, Commands};
-use commands::usage::handle_usage_command;
-use commands::projects::handle_projects_command;
-use commands::conversations::{handle_conversations_command, handle_optimize_command};
-use commands::watch::handle_watch_command;
 use commands::config::handle_config_action;
-
-
-
-
-
-
-
-
-
-
-
+use commands::conversations::{handle_conversations_command, handle_optimize_command};
+use commands::projects::handle_projects_command;
+use commands::usage::handle_usage_command;
+use commands::watch::handle_watch_command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -179,8 +168,8 @@ async fn main() -> anyhow::Result<()> {
 #[allow(unused)]
 mod tests {
     use super::*;
+    use crate::cli::{ConfigAction, ProjectSort, UsageTimeframe};
     use clap::CommandFactory;
-    use crate::cli::{UsageTimeframe, ProjectSort, ConfigAction};
 
     #[test]
     fn verify_cli_structure() {
@@ -269,7 +258,10 @@ mod tests {
                     assert_eq!(project, Some("test".to_string()));
                     assert_eq!(model, None);
                 }
-                _ => assert!(false, "Expected Yesterday timeframe but got different timeframe"),
+                _ => assert!(
+                    false,
+                    "Expected Yesterday timeframe but got different timeframe"
+                ),
             },
             _ => assert!(false, "Expected Usage command but got different command"),
         }
@@ -283,7 +275,10 @@ mod tests {
                     assert_eq!(project, None);
                     assert_eq!(model, Some("claude-sonnet-4".to_string()));
                 }
-                _ => assert!(false, "Expected ThisWeek timeframe but got different timeframe"),
+                _ => assert!(
+                    false,
+                    "Expected ThisWeek timeframe but got different timeframe"
+                ),
             },
             _ => assert!(false, "Expected Usage command but got different command"),
         }
@@ -434,4 +429,3 @@ mod tests {
         assert!(result.is_err()); // Help exits with error code but shouldn't panic
     }
 }
-

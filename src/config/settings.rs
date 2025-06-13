@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, Context};
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -22,7 +22,6 @@ pub struct CurrencyConfig {
     pub default_currency: String,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputConfig {
     pub format: String, // "table" or "json"
@@ -33,11 +32,9 @@ pub struct OutputConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimezoneConfig {
-    pub timezone: String, // e.g., "UTC", "America/New_York"
+    pub timezone: String,      // e.g., "UTC", "America/New_York"
     pub daily_cutoff_hour: u8, // 0-23, hour when new day starts
 }
-
-
 
 impl Default for Config {
     fn default() -> Self {
@@ -66,86 +63,113 @@ impl Default for Config {
 impl Config {
     pub fn load() -> Result<Self> {
         let config_path = Self::default_path()?;
-        
+
         if !config_path.exists() {
             let config = Self::default();
             config.save()?;
             return Ok(config);
         }
-        
+
         let contents = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
-        
+
         let config: Self = toml::from_str(&contents)
             .with_context(|| format!("Failed to parse config file: {}", config_path.display()))?;
-        
+
         Ok(config)
     }
-    
+
     pub fn save(&self) -> Result<()> {
         let config_path = Self::default_path()?;
-        
+
         // Ensure parent directory exists
         if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
         }
-        
+
         let contents = self.to_commented_toml()?;
-        
+
         fs::write(&config_path, contents)
             .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
-        
+
         Ok(())
     }
-    
+
     /// Generate TOML configuration with comprehensive comments explaining all options
     pub fn to_commented_toml(&self) -> Result<String> {
         let mut output = String::new();
-        
+
         output.push_str("# ccost Configuration File\n");
         output.push_str("# Claude Cost Tracking Tool - Configuration Options\n");
         output.push_str("#\n");
         output.push_str("# This file contains all configuration options for ccost.\n");
-        output.push_str("# All settings have sensible defaults and can be overridden via CLI flags.\n");
+        output.push_str(
+            "# All settings have sensible defaults and can be overridden via CLI flags.\n",
+        );
         output.push_str("\n");
-        
+
         // General settings
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("# GENERAL SETTINGS\n");
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("\n");
         output.push_str("[general]\n");
-        output.push_str("# Path to Claude projects directory (where JSONL conversation files are stored)\n");
+        output.push_str(
+            "# Path to Claude projects directory (where JSONL conversation files are stored)\n",
+        );
         output.push_str("# Default: ~/.claude/projects\n");
         output.push_str("# The tool will look for JSONL files in subdirectories of this path\n");
-        output.push_str(&format!("claude_projects_path = \"{}\"\n", self.general.claude_projects_path));
+        output.push_str(&format!(
+            "claude_projects_path = \"{}\"\n",
+            self.general.claude_projects_path
+        ));
         output.push_str("\n");
         output.push_str("# Cost calculation mode - controls how costs are determined:\n");
         output.push_str("#   \"auto\"      - Use embedded costUSD if available, calculate if missing (recommended)\n");
         output.push_str("#   \"calculate\" - Always calculate cost from tokens × pricing (ignores embedded costs)\n");
         output.push_str("#   \"display\"   - Only show embedded costUSD, $0.00 if missing\n");
-        output.push_str("# Most users should use \"auto\" which provides the most accurate results\n");
+        output.push_str(
+            "# Most users should use \"auto\" which provides the most accurate results\n",
+        );
         output.push_str(&format!("cost_mode = \"{}\"\n", self.general.cost_mode));
         output.push_str("\n");
-        
+
         // Currency settings
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("# CURRENCY SETTINGS\n");
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("\n");
         output.push_str("[currency]\n");
         output.push_str("# Default currency for displaying costs\n");
-        output.push_str("# Supported: USD, EUR, GBP, JPY, CAD, AUD, CHF, CNY, and other major currencies\n");
+        output.push_str(
+            "# Supported: USD, EUR, GBP, JPY, CAD, AUD, CHF, CNY, and other major currencies\n",
+        );
         output.push_str("# Exchange rates are fetched from the European Central Bank (ECB) API\n");
         output.push_str("# USD costs from Claude are converted to your preferred currency\n");
-        output.push_str(&format!("default_currency = \"{}\"\n", self.currency.default_currency));
+        output.push_str(&format!(
+            "default_currency = \"{}\"\n",
+            self.currency.default_currency
+        ));
         output.push_str("\n");
-        
+
         // Output settings
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("# OUTPUT SETTINGS\n");
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("\n");
         output.push_str("[output]\n");
         output.push_str("# Default output format:\n");
@@ -163,7 +187,10 @@ impl Config {
         output.push_str("# Number of decimal places for currency display\n");
         output.push_str("# Default: 2 (e.g., $12.34)\n");
         output.push_str("# Increase for more precision, decrease for cleaner display\n");
-        output.push_str(&format!("decimal_places = {}\n", self.output.decimal_places));
+        output.push_str(&format!(
+            "decimal_places = {}\n",
+            self.output.decimal_places
+        ));
         output.push_str("\n");
         output.push_str("# Date format for table output display\n");
         output.push_str("# Options:\n");
@@ -173,31 +200,46 @@ impl Config {
         output.push_str("# Note: JSON output always uses ISO format regardless of this setting\n");
         output.push_str(&format!("date_format = \"{}\"\n", self.output.date_format));
         output.push_str("\n");
-        
+
         // Timezone settings
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("# TIMEZONE SETTINGS\n");
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("\n");
         output.push_str("[timezone]\n");
         output.push_str("# Your timezone for date filtering and daily cutoffs\n");
-        output.push_str("# Examples: \"UTC\", \"America/New_York\", \"Europe/London\", \"Asia/Tokyo\"\n");
+        output.push_str(
+            "# Examples: \"UTC\", \"America/New_York\", \"Europe/London\", \"Asia/Tokyo\"\n",
+        );
         output.push_str("# Use `timedatectl list-timezones` on Linux to see available timezones\n");
         output.push_str("# Affects when \"today\", \"yesterday\" etc. start and end\n");
         output.push_str(&format!("timezone = \"{}\"\n", self.timezone.timezone));
         output.push_str("\n");
         output.push_str("# Hour of day when a new \"day\" begins (0-23)\n");
         output.push_str("# Default: 0 (midnight)\n");
-        output.push_str("# Useful if you work late nights and want \"today\" to start at e.g. 6 AM\n");
-        output.push_str("# Example: Set to 6 to make \"today\" start at 6 AM instead of midnight\n");
-        output.push_str(&format!("daily_cutoff_hour = {}\n", self.timezone.daily_cutoff_hour));
+        output.push_str(
+            "# Useful if you work late nights and want \"today\" to start at e.g. 6 AM\n",
+        );
+        output
+            .push_str("# Example: Set to 6 to make \"today\" start at 6 AM instead of midnight\n");
+        output.push_str(&format!(
+            "daily_cutoff_hour = {}\n",
+            self.timezone.daily_cutoff_hour
+        ));
         output.push_str("\n");
-        
-        
+
         // Final notes
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("# USAGE NOTES\n");
-        output.push_str("# =============================================================================\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
         output.push_str("#\n");
         output.push_str("# Command-line flags override these configuration values:\n");
         output.push_str("#   --currency EUR        Override default_currency\n");
@@ -206,42 +248,50 @@ impl Config {
         output.push_str("#   --config /path/file    Use different config file\n");
         output.push_str("#\n");
         output.push_str("# To reset to defaults: ccost config --init\n");
-        output.push_str("# To modify values:     ccost config --set currency.default_currency EUR\n");
+        output
+            .push_str("# To modify values:     ccost config --set currency.default_currency EUR\n");
         output.push_str("# To view current:      ccost config --show\n");
         output.push_str("#\n");
         output.push_str("# For more information: https://github.com/carlosarraes/ccost\n");
-        
+
         Ok(output)
     }
-    
+
     pub fn default_path() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .context("Failed to determine home directory")?;
+        let home = dirs::home_dir().context("Failed to determine home directory")?;
         Ok(home.join(".config").join("ccost").join("config.toml"))
     }
-    
+
     pub fn set_value(&mut self, key: &str, value: &str) -> Result<()> {
         match key {
             "general.claude_projects_path" => self.general.claude_projects_path = value.to_string(),
             "general.cost_mode" => {
                 if !["auto", "calculate", "display"].contains(&value) {
-                    anyhow::bail!("Invalid cost_mode: {}. Must be 'auto', 'calculate', or 'display'", value);
+                    anyhow::bail!(
+                        "Invalid cost_mode: {}. Must be 'auto', 'calculate', or 'display'",
+                        value
+                    );
                 }
                 self.general.cost_mode = value.to_string();
             }
             "currency.default_currency" => self.currency.default_currency = value.to_string(),
             "output.format" => {
                 if !["table", "json"].contains(&value) {
-                    anyhow::bail!("Invalid output format: {}. Must be 'table' or 'json'", value);
+                    anyhow::bail!(
+                        "Invalid output format: {}. Must be 'table' or 'json'",
+                        value
+                    );
                 }
                 self.output.format = value.to_string();
             }
             "output.colored" => {
-                self.output.colored = value.parse()
+                self.output.colored = value
+                    .parse()
                     .with_context(|| format!("Invalid boolean value: {}", value))?;
             }
             "output.decimal_places" => {
-                let places: u8 = value.parse()
+                let places: u8 = value
+                    .parse()
                     .with_context(|| format!("Invalid decimal places value: {}", value))?;
                 if places > 10 {
                     anyhow::bail!("Decimal places must be between 0 and 10");
@@ -250,7 +300,8 @@ impl Config {
             }
             "timezone.timezone" => self.timezone.timezone = value.to_string(),
             "timezone.daily_cutoff_hour" => {
-                let hour: u8 = value.parse()
+                let hour: u8 = value
+                    .parse()
                     .with_context(|| format!("Invalid hour value: {}", value))?;
                 if hour > 23 {
                     anyhow::bail!("Hour must be between 0 and 23");
