@@ -68,16 +68,14 @@ jobs:
           # Set binary name based on OS and architecture
           BINARY_NAME="ccost-${{ matrix.platform.os }}-${{ matrix.platform.arch }}"
           
-          # Create compressed archive
-          cd dist
-          tar -czf "${BINARY_NAME}.tar.gz" ${{ matrix.platform.binary_name }}
-          
-          echo "asset_path=dist/${BINARY_NAME}.tar.gz" >> $GITHUB_OUTPUT
+          # Create both generic and platform-specific binaries
+          cp dist/${{ matrix.platform.binary_name }} "dist/${BINARY_NAME}"
+          echo "asset_paths=dist/${{ matrix.platform.binary_name }},dist/${BINARY_NAME}" >> $GITHUB_OUTPUT
 
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.prepare_binary.outputs.asset_path }}
+          files: ${{ steps.prepare_binary.outputs.asset_paths }}
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
@@ -85,13 +83,13 @@ jobs:
 
             ### Installation
 
-            **Linux (x86_64)**:
+            **One-line installer**:
             ```bash
             curl -sSf https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
             ```
 
             **Manual Download**:
-            Download the appropriate binary for your platform below.
+            Download the appropriate binary for your platform below and make it executable.
 
             ### Changes
 
