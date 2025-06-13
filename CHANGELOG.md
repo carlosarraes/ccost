@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **🚀🚀🚀 MILESTONE 2 ENHANCED FEATURES COMPLETE! 🚀🚀🚀** (Real-time watch mode + core infrastructure done)
 
 ### Added  
+- **TASK-047 COMPLETED**: Date Format Configuration - User-configurable date display formats for enhanced international support (2025-06-13)
+  - **CONFIGURABLE DATE FORMATS**: Three date format options for table output - ISO (yyyy-mm-dd), European (dd-mm-yyyy), and American (mm-dd-yyyy)
+  - **SMART DUAL OUTPUT**: Table output uses configured format while JSON output always uses ISO format for consistency
+  - **COMPREHENSIVE DATE UTILITIES**: Complete DateFormatter utility with DateFormat enum supporting all formatting needs
+  - **SEAMLESS INTEGRATION**: Date formatting integrated into usage commands, daily usage display, and filter information
+  - **INTELLIGENT DEFAULTS**: Defaults to ISO format (yyyy-mm-dd) for universal compatibility and best practices
+  - **ROBUST VALIDATION**: Comprehensive error handling and validation for date format configuration strings
+  - **ENHANCED CONFIGURATION**: Extended output configuration section with clear documentation and examples
+  - **FILTER DISPLAY ENHANCEMENT**: Date/time filters in verbose mode now respect user's configured date format preferences
+  - **BACKWARD COMPATIBILITY**: Existing configurations continue to work seamlessly with new ISO format default
+  - **INTERNATIONAL READY**: Supports regional date format preferences for global user base
+  - **MILESTONE**: ccost now provides complete date formatting customization for optimal user experience across different regions
 - **TASK-046 COMPLETED**: One-Line Install Script - Professional Unix installer for seamless distribution (2025-06-13)
   - **PRODUCTION INSTALLER**: Complete one-line installer script for easy ccost installation across Unix systems
   - **SMART PLATFORM DETECTION**: Automatic OS and architecture detection supporting Linux x86_64, macOS x86_64, and macOS aarch64 (Apple Silicon)
