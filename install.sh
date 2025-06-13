@@ -1,285 +1,109 @@
-#!/bin/bash
-
-# ccost installer script
-# This script installs ccost from GitHub releases
-# Usage: curl -sSf https://raw.githubusercontent.com/carlosarraes/ccost/main/install.sh | sh
+#!/bin/sh
+# ccost installer
+#
+# Usage:
+#   curl -sSf https://raw.githubusercontent.com/carlosarraes/ccost/main/install.sh | sh
 
 set -e
 
-# Configuration
 REPO="carlosarraes/ccost"
 BINARY_NAME="ccost"
-INSTALL_DIR="$HOME/.local/bin"
+BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
+GITHUB_LATEST="https://api.github.com/repos/${REPO}/releases/latest"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Logging functions
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1" >&2
-}
-
-# Error handling
-cleanup() {
-    if [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
-        log_info "Cleaning up temporary files..."
-        rm -rf "$temp_dir"
-    fi
-}
-
-error_exit() {
-    log_error "$1"
-    cleanup
+get_arch() {
+  # detect architecture
+  ARCH=$(uname -m)
+  case $ARCH in
+  x86_64) ARCH="x86_64" ;;
+  aarch64) ARCH="aarch64" ;;
+  arm64) ARCH="aarch64" ;;
+  *)
+    echo "Unsupported architecture: $ARCH"
     exit 1
+    ;;
+  esac
 }
 
-# Trap errors and cleanup
-trap cleanup EXIT
-trap 'error_exit "Installation interrupted"' INT TERM
-
-# Detect OS
-detect_os() {
-    local os
-    os=$(uname -s)
-    case "$os" in
-        Linux*)
-            echo "linux"
-            ;;
-        Darwin*)
-            echo "macos"
-            ;;
-        CYGWIN*|MINGW*)
-            error_exit "Windows is not supported yet. Please check GitHub releases for Windows binaries."
-            ;;
-        *)
-            error_exit "Unsupported operating system: $os"
-            ;;
-    esac
+get_os() {
+  # detect os
+  OS=$(uname -s)
+  case $OS in
+  Linux) OS="linux" ;;
+  Darwin) OS="darwin" ;;
+  *)
+    echo "Unsupported OS: $OS"
+    exit 1
+    ;;
+  esac
 }
 
-# Detect architecture
-detect_arch() {
-    local arch
-    arch=$(uname -m)
-    case "$arch" in
-        x86_64|amd64)
-            echo "x86_64"
-            ;;
-        arm64|aarch64)
-            echo "aarch64"
-            ;;
-        *)
-            error_exit "Unsupported architecture: $arch"
-            ;;
-    esac
+download_binary() {
+  # get latest release info
+  echo "Fetching latest release..."
+  VERSION=$(curl -s $GITHUB_LATEST | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
+  if [ -z "$VERSION" ]; then
+    echo "Failed to fetch latest version"
+    exit 1
+  fi
+
+  echo "Latest version: $VERSION"
+
+  # create temporary directory
+  TMP_DIR=$(mktemp -d)
+  # Ensure cleanup happens even if script fails or exits early
+  trap 'rm -rf "$TMP_DIR"' EXIT
+
+  echo "Downloading ${BINARY_NAME} ${VERSION}..."
+
+  # Download the binary directly (no tar.gz)
+  # Try generic binary first, then platform-specific
+  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}"
+  PLATFORM_BINARY="${BINARY_NAME}-${OS}-${ARCH}"
+  PLATFORM_URL="https://github.com/${REPO}/releases/download/${VERSION}/${PLATFORM_BINARY}"
+
+  # download the binary directly
+  echo "Downloading from: $DOWNLOAD_URL"
+  if ! curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${BINARY_NAME}" 2>/dev/null; then
+    echo "Generic binary not found, trying platform-specific binary..."
+    echo "Downloading from: $PLATFORM_URL"
+    curl -fsSL "$PLATFORM_URL" -o "${TMP_DIR}/${BINARY_NAME}" || {
+      echo "Download failed. Check URL/permissions/network."
+      exit 1
+    }
+  fi
+
+  # make it executable
+  chmod +x "${TMP_DIR}/${BINARY_NAME}"
+
+  # Check if BIN_DIR exists and create if needed
+  CREATED_DIR_MSG=""
+  if [ ! -d "$BIN_DIR" ]; then
+    echo "Installation directory '$BIN_DIR' not found."
+    echo "Creating directory: $BIN_DIR"
+    mkdir -p "$BIN_DIR"
+    CREATED_DIR_MSG="Note: Created directory '$BIN_DIR'. You might need to add it to your system's PATH."
+  fi
+
+  # install binary (no sudo needed for $HOME/.local/bin)
+  echo "Installing to $BIN_DIR..."
+  install -m 755 "${TMP_DIR}/${BINARY_NAME}" "$BIN_DIR"
+
+  # cleanup happens via trap
+
+  echo "${BINARY_NAME} ${VERSION} installed successfully to $BIN_DIR"
+
+  # Print the warning message if the directory was created
+  if [ -n "$CREATED_DIR_MSG" ]; then
+    echo ""
+    echo "$CREATED_DIR_MSG"
+  fi
 }
 
-# Check if command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
+# Run the installer
+get_arch
+get_os
+download_binary
 
-# Check prerequisites
-check_prerequisites() {
-    log_info "Checking prerequisites..."
-    
-    if ! command_exists curl && ! command_exists wget; then
-        error_exit "Neither curl nor wget is available. Please install one of them to continue."
-    fi
-    
-    if ! command_exists tar; then
-        error_exit "tar is required but not available. Please install tar to continue."
-    fi
-    
-    log_success "Prerequisites check passed"
-}
-
-# Validate OS/arch combination
-validate_platform() {
-    local os="$1"
-    local arch="$2"
-    
-    # Linux currently only supports x86_64
-    if [ "$os" = "linux" ] && [ "$arch" = "aarch64" ]; then
-        error_exit "Linux ARM64 is not supported yet. Only Linux x86_64 is available."
-    fi
-    
-    log_info "Platform validated: $os-$arch"
-}
-
-# Download file with fallback
-download_file() {
-    local url="$1"
-    local output="$2"
-    
-    log_info "Downloading from: $url"
-    
-    if command_exists curl; then
-        if ! curl -sSfL "$url" -o "$output"; then
-            return 1
-        fi
-    elif command_exists wget; then
-        if ! wget -q "$url" -O "$output"; then
-            return 1
-        fi
-    else
-        error_exit "No download tool available"
-    fi
-    
-    return 0
-}
-
-# Get latest release info
-get_latest_release() {
-    local api_url="https://api.github.com/repos/$REPO/releases/latest"
-    local release_info
-    
-    log_info "Fetching latest release information..."
-    
-    if command_exists curl; then
-        release_info=$(curl -sSf "$api_url" 2>/dev/null) || {
-            log_warn "Failed to fetch release info from API, using 'latest' tag"
-            echo "latest"
-            return 0
-        }
-    elif command_exists wget; then
-        release_info=$(wget -qO- "$api_url" 2>/dev/null) || {
-            log_warn "Failed to fetch release info from API, using 'latest' tag"
-            echo "latest"
-            return 0
-        }
-    else
-        log_warn "No download tool available for API call, using 'latest' tag"
-        echo "latest"
-        return 0
-    fi
-    
-    # Extract tag name from JSON (simple grep approach)
-    local tag_name
-    tag_name=$(echo "$release_info" | grep '"tag_name"' | head -n 1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-    
-    if [ -n "$tag_name" ]; then
-        echo "$tag_name"
-    else
-        log_warn "Could not parse release tag, using 'latest'"
-        echo "latest"
-    fi
-}
-
-# Main installation function
-install_ccost() {
-    log_info "Starting ccost installation..."
-    
-    # Detect platform
-    local os arch
-    os=$(detect_os)
-    arch=$(detect_arch)
-    validate_platform "$os" "$arch"
-    
-    # Check prerequisites
-    check_prerequisites
-    
-    # Get latest release
-    local version
-    version=$(get_latest_release)
-    log_info "Installing ccost version: $version"
-    
-    # Construct download URL
-    local asset_name="ccost-$os-$arch"
-    local download_url
-    if [ "$version" = "latest" ]; then
-        download_url="https://github.com/$REPO/releases/latest/download/$asset_name.tar.gz"
-    else
-        download_url="https://github.com/$REPO/releases/download/$version/$asset_name.tar.gz"
-    fi
-    
-    # Create temporary directory
-    temp_dir=$(mktemp -d)
-    log_info "Using temporary directory: $temp_dir"
-    
-    # Download archive
-    local archive_path="$temp_dir/$asset_name.tar.gz"
-    if ! download_file "$download_url" "$archive_path"; then
-        error_exit "Failed to download ccost from $download_url. Please check your internet connection and try again."
-    fi
-    
-    log_success "Downloaded ccost archive"
-    
-    # Extract archive
-    log_info "Extracting archive..."
-    if ! tar -xzf "$archive_path" -C "$temp_dir"; then
-        error_exit "Failed to extract archive. The download may be corrupted."
-    fi
-    
-    # Verify binary exists
-    local binary_path="$temp_dir/$BINARY_NAME"
-    if [ ! -f "$binary_path" ]; then
-        error_exit "Binary not found in archive. Expected: $BINARY_NAME"
-    fi
-    
-    # Make binary executable
-    chmod +x "$binary_path"
-    
-    # Test binary
-    log_info "Testing binary..."
-    if ! "$binary_path" --version >/dev/null 2>&1; then
-        log_warn "Binary version check failed, but continuing installation..."
-    fi
-    
-    # Create installation directory
-    log_info "Creating installation directory: $INSTALL_DIR"
-    mkdir -p "$INSTALL_DIR"
-    
-    # Install binary
-    local install_path="$INSTALL_DIR/$BINARY_NAME"
-    log_info "Installing binary to: $install_path"
-    
-    if ! cp "$binary_path" "$install_path"; then
-        error_exit "Failed to copy binary to $install_path. Check permissions."
-    fi
-    
-    log_success "ccost installed successfully!"
-    
-    # Check PATH
-    case ":$PATH:" in
-        *":$INSTALL_DIR:"*)
-            log_success "Installation directory is already in PATH"
-            ;;
-        *)
-            log_warn "Installation directory is not in PATH"
-            echo
-            echo "To use ccost, add the following to your shell profile:"
-            echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-            echo
-            echo "Or run ccost directly:"
-            echo "  $install_path --help"
-            ;;
-    esac
-    
-    echo
-    log_success "Installation complete!"
-    echo
-    echo "Try running: ccost --help"
-    echo "Or if not in PATH: $install_path --help"
-    echo
-    echo "For more information, visit: https://github.com/$REPO"
-}
-
-# Run installation
-install_ccost
+echo ""
+echo "Installation complete! Run '${BINARY_NAME} --help' to get started."
