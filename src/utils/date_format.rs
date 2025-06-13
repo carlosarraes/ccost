@@ -1,12 +1,12 @@
-use chrono::{DateTime, Utc, NaiveDate};
 use anyhow::{Result, anyhow};
+use chrono::{DateTime, NaiveDate, Utc};
 
 /// Supported date format options for table output
 #[derive(Debug, Clone, PartialEq)]
 pub enum DateFormat {
-    YearMonthDay,  // yyyy-mm-dd (ISO)
-    DayMonthYear,  // dd-mm-yyyy (European)
-    MonthDayYear,  // mm-dd-yyyy (American)
+    YearMonthDay, // yyyy-mm-dd (ISO)
+    DayMonthYear, // dd-mm-yyyy (European)
+    MonthDayYear, // mm-dd-yyyy (American)
 }
 
 impl DateFormat {
@@ -27,7 +27,7 @@ impl DateFormat {
     pub fn to_chrono_format(&self) -> &'static str {
         match self {
             DateFormat::YearMonthDay => "%Y-%m-%d",
-            DateFormat::DayMonthYear => "%d-%m-%Y", 
+            DateFormat::DayMonthYear => "%d-%m-%Y",
             DateFormat::MonthDayYear => "%m-%d-%Y",
         }
     }
@@ -137,7 +137,7 @@ impl DateFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, NaiveDate};
+    use chrono::{NaiveDate, TimeZone};
 
     #[test]
     fn test_date_format_from_config() {
@@ -182,18 +182,9 @@ mod tests {
     fn test_datetime_formatting() {
         let dt = Utc.with_ymd_and_hms(2024, 3, 15, 14, 30, 0).unwrap();
 
-        assert_eq!(
-            DateFormat::YearMonthDay.format_datetime(&dt),
-            "2024-03-15"
-        );
-        assert_eq!(
-            DateFormat::DayMonthYear.format_datetime(&dt),
-            "15-03-2024"
-        );
-        assert_eq!(
-            DateFormat::MonthDayYear.format_datetime(&dt),
-            "03-15-2024"
-        );
+        assert_eq!(DateFormat::YearMonthDay.format_datetime(&dt), "2024-03-15");
+        assert_eq!(DateFormat::DayMonthYear.format_datetime(&dt), "15-03-2024");
+        assert_eq!(DateFormat::MonthDayYear.format_datetime(&dt), "03-15-2024");
     }
 
     #[test]
@@ -263,7 +254,10 @@ mod tests {
         let dt = Utc.with_ymd_and_hms(2024, 3, 15, 14, 30, 0).unwrap();
 
         let formatter = DateFormatter::new("dd-mm-yyyy").unwrap();
-        assert_eq!(formatter.format_for_table_with_time(&dt), "15-03-2024 14:30");
+        assert_eq!(
+            formatter.format_for_table_with_time(&dt),
+            "15-03-2024 14:30"
+        );
         assert_eq!(formatter.format_for_json_with_time(&dt), "2024-03-15 14:30"); // Always ISO for JSON
     }
 

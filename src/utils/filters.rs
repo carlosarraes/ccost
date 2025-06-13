@@ -1,7 +1,7 @@
 use crate::analysis::UsageFilter;
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use crate::cli::args::UsageTimeframe;
 use crate::utils::DateFormatter;
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 
 /// Helper structure to associate usage data with project name
 #[derive(Debug, Clone)]
@@ -65,7 +65,10 @@ pub fn resolve_filters(
             let start = match days_ago.and_hms_opt(0, 0, 0) {
                 Some(naive_dt) => Utc.from_utc_datetime(&naive_dt),
                 None => {
-                    eprintln!("Warning: Failed to create start datetime for {} days ago", days);
+                    eprintln!(
+                        "Warning: Failed to create start datetime for {} days ago",
+                        days
+                    );
                     Utc::now() // Fallback to current time
                 }
             };
@@ -83,8 +86,10 @@ pub fn resolve_filters(
         since.and_then(|s| {
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
                 .ok()
-                .and_then(|date| date.and_hms_opt(0, 0, 0)
-                    .map(|naive_dt| Utc.from_utc_datetime(&naive_dt)))
+                .and_then(|date| {
+                    date.and_hms_opt(0, 0, 0)
+                        .map(|naive_dt| Utc.from_utc_datetime(&naive_dt))
+                })
         })
     });
 
@@ -92,8 +97,10 @@ pub fn resolve_filters(
         until.and_then(|s| {
             NaiveDate::parse_from_str(&s, "%Y-%m-%d")
                 .ok()
-                .and_then(|date| date.and_hms_opt(23, 59, 59)
-                    .map(|naive_dt| Utc.from_utc_datetime(&naive_dt)))
+                .and_then(|date| {
+                    date.and_hms_opt(23, 59, 59)
+                        .map(|naive_dt| Utc.from_utc_datetime(&naive_dt))
+                })
         })
     });
 
@@ -114,10 +121,16 @@ pub fn print_filter_info(filter: &UsageFilter, json_output: bool, date_formatter
         println!("  Model: {}", model);
     }
     if let Some(ref since) = filter.since {
-        println!("  Since: {}", date_formatter.format_for_table_with_time(since));
+        println!(
+            "  Since: {}",
+            date_formatter.format_for_table_with_time(since)
+        );
     }
     if let Some(ref until) = filter.until {
-        println!("  Until: {}", date_formatter.format_for_table_with_time(until));
+        println!(
+            "  Until: {}",
+            date_formatter.format_for_table_with_time(until)
+        );
     }
     println!();
 }

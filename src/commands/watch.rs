@@ -1,5 +1,5 @@
-use crate::config::Config;
 use crate::cli::Cli;
+use crate::config::Config;
 
 pub async fn handle_watch_command(
     project_filter: Option<String>,

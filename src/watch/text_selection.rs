@@ -1,7 +1,7 @@
 // Text selection functionality for watch mode activity logs
 use anyhow::Result;
 use arboard::Clipboard;
-use crossterm::event::{MouseEvent, MouseEventKind, MouseButton};
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use std::collections::VecDeque;
 
@@ -36,11 +36,11 @@ impl TextSelection {
 
     pub fn contains_point(&self, line: usize, col: usize) -> bool {
         let (start_line, start_col, end_line, end_col) = self.normalized();
-        
+
         if line < start_line || line > end_line {
             return false;
         }
-        
+
         if line == start_line && line == end_line {
             col >= start_col && col <= end_col
         } else if line == start_line {
@@ -53,8 +53,9 @@ impl TextSelection {
     }
 
     fn normalized(&self) -> (usize, usize, usize, usize) {
-        if self.start_line < self.end_line || 
-           (self.start_line == self.end_line && self.start_col <= self.end_col) {
+        if self.start_line < self.end_line
+            || (self.start_line == self.end_line && self.start_col <= self.end_col)
+        {
             (self.start_line, self.start_col, self.end_line, self.end_col)
         } else {
             (self.end_line, self.end_col, self.start_line, self.start_col)
@@ -144,10 +145,10 @@ impl TextSelectionHandler {
     }
 
     fn is_mouse_in_area(&self, mouse_event: MouseEvent, area: Rect) -> bool {
-        mouse_event.column >= area.x && 
-        mouse_event.column < area.x + area.width &&
-        mouse_event.row >= area.y && 
-        mouse_event.row < area.y + area.height
+        mouse_event.column >= area.x
+            && mouse_event.column < area.x + area.width
+            && mouse_event.row >= area.y
+            && mouse_event.row < area.y + area.height
     }
 
     fn mouse_to_text_position(&self, mouse_event: MouseEvent, area: Rect) -> (usize, usize) {
@@ -169,7 +170,11 @@ impl TextSelectionHandler {
         Ok(String::new())
     }
 
-    fn extract_selected_text(&self, events: &VecDeque<WatchEvent>, selection: &TextSelection) -> Result<String> {
+    fn extract_selected_text(
+        &self,
+        events: &VecDeque<WatchEvent>,
+        selection: &TextSelection,
+    ) -> Result<String> {
         let (start_line, start_col, end_line, end_col) = selection.normalized();
         let mut selected_lines = Vec::new();
 
@@ -223,32 +228,75 @@ impl TextSelectionHandler {
 fn format_event_to_text(event: &WatchEvent) -> String {
     let timestamp = event.get_timestamp().format("%H:%M:%S");
     match event {
-        WatchEvent::NewMessage { tokens, cost, model, project, .. } => {
-            format!("[{}] New message: {} tokens, ${:.4} ({}), project: {}", 
-                   timestamp, tokens, cost, model, project)
+        WatchEvent::NewMessage {
+            tokens,
+            cost,
+            model,
+            project,
+            ..
+        } => {
+            format!(
+                "[{}] New message: {} tokens, ${:.4} ({}), project: {}",
+                timestamp, tokens, cost, model, project
+            )
         }
-        WatchEvent::CacheHit { saved_tokens, saved_cost, project, .. } => {
-            format!("[{}] Cache hit: saved {} tokens, ${:.4}, project: {}", 
-                   timestamp, saved_tokens, saved_cost, project)
+        WatchEvent::CacheHit {
+            saved_tokens,
+            saved_cost,
+            project,
+            ..
+        } => {
+            format!(
+                "[{}] Cache hit: saved {} tokens, ${:.4}, project: {}",
+                timestamp, saved_tokens, saved_cost, project
+            )
         }
-        WatchEvent::ExpensiveConversation { cost, threshold, project, .. } => {
-            format!("[{}] Expensive conversation: ${:.4} > ${:.4}, project: {}", 
-                   timestamp, cost, threshold, project)
+        WatchEvent::ExpensiveConversation {
+            cost,
+            threshold,
+            project,
+            ..
+        } => {
+            format!(
+                "[{}] Expensive conversation: ${:.4} > ${:.4}, project: {}",
+                timestamp, cost, threshold, project
+            )
         }
-        WatchEvent::ModelSwitch { from, to, project, .. } => {
-            format!("[{}] Model switch: {} → {}, project: {}", 
-                   timestamp, from, to, project)
+        WatchEvent::ModelSwitch {
+            from, to, project, ..
+        } => {
+            format!(
+                "[{}] Model switch: {} → {}, project: {}",
+                timestamp, from, to, project
+            )
         }
         WatchEvent::SessionStart { project, .. } => {
             format!("[{}] Session started: {}", timestamp, project)
         }
-        WatchEvent::SessionEnd { project, duration, total_cost, .. } => {
-            format!("[{}] Session ended: {}, duration: {}s, cost: ${:.4}", 
-                   timestamp, project, duration.as_secs(), total_cost)
+        WatchEvent::SessionEnd {
+            project,
+            duration,
+            total_cost,
+            ..
+        } => {
+            format!(
+                "[{}] Session ended: {}, duration: {}s, cost: ${:.4}",
+                timestamp,
+                project,
+                duration.as_secs(),
+                total_cost
+            )
         }
-        WatchEvent::ProjectActivity { project, message_count, cost, .. } => {
-            format!("[{}] Project activity: {}, {} messages, ${:.4}", 
-                   timestamp, project, message_count, cost)
+        WatchEvent::ProjectActivity {
+            project,
+            message_count,
+            cost,
+            ..
+        } => {
+            format!(
+                "[{}] Project activity: {}, {} messages, ${:.4}",
+                timestamp, project, message_count, cost
+            )
         }
     }
 }
@@ -294,14 +342,14 @@ mod tests {
         selection.update_end(3, 8);
 
         // Test points within selection
-        assert!(selection.contains_point(1, 6));  // Start line, after start col
-        assert!(selection.contains_point(2, 5));  // Middle line
-        assert!(selection.contains_point(3, 6));  // End line, before end col
+        assert!(selection.contains_point(1, 6)); // Start line, after start col
+        assert!(selection.contains_point(2, 5)); // Middle line
+        assert!(selection.contains_point(3, 6)); // End line, before end col
 
         // Test points outside selection
         assert!(!selection.contains_point(0, 10)); // Before start line
-        assert!(!selection.contains_point(4, 5));  // After end line
-        assert!(!selection.contains_point(1, 3));  // Start line, before start col
+        assert!(!selection.contains_point(4, 5)); // After end line
+        assert!(!selection.contains_point(1, 3)); // Start line, before start col
         assert!(!selection.contains_point(3, 10)); // End line, after end col
     }
 
@@ -331,23 +379,23 @@ mod tests {
     fn test_mouse_in_area() {
         let handler = TextSelectionHandler::new();
         let area = Rect::new(10, 5, 20, 10);
-        
+
         let mouse_event = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: 15,
             row: 8,
             modifiers: crossterm::event::KeyModifiers::empty(),
         };
-        
+
         assert!(handler.is_mouse_in_area(mouse_event, area));
-        
+
         let mouse_event_outside = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: 5,
             row: 8,
             modifiers: crossterm::event::KeyModifiers::empty(),
         };
-        
+
         assert!(!handler.is_mouse_in_area(mouse_event_outside, area));
     }
 
@@ -355,17 +403,17 @@ mod tests {
     fn test_mouse_to_text_position() {
         let handler = TextSelectionHandler::new();
         let area = Rect::new(10, 5, 20, 10);
-        
+
         let mouse_event = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: 15,
             row: 8,
             modifiers: crossterm::event::KeyModifiers::empty(),
         };
-        
+
         let (line, col) = handler.mouse_to_text_position(mouse_event, area);
         assert_eq!(line, 2); // row 8 - area.y 5 - border 1 = 2
-        assert_eq!(col, 4);  // column 15 - area.x 10 - border 1 = 4
+        assert_eq!(col, 4); // column 15 - area.x 10 - border 1 = 4
     }
 
     #[test]
@@ -377,7 +425,7 @@ mod tests {
             project: "test-project".to_string(),
             timestamp: Utc::now(),
         };
-        
+
         let text = format_event_to_text(&event);
         assert!(text.contains("New message"));
         assert!(text.contains("150 tokens"));
@@ -392,14 +440,14 @@ mod tests {
         let mut events = VecDeque::new();
         events.push_back(create_test_event(0));
         events.push_back(create_test_event(1));
-        
+
         let selection = TextSelection {
             start_line: 0,
             start_col: 10,
             end_line: 0,
             end_col: 20,
         };
-        
+
         let result = handler.extract_selected_text(&events, &selection);
         assert!(result.is_ok());
         let text = result.unwrap();
@@ -413,14 +461,14 @@ mod tests {
         events.push_back(create_test_event(0));
         events.push_back(create_test_event(1));
         events.push_back(create_test_event(2));
-        
+
         let selection = TextSelection {
             start_line: 0,
             start_col: 10,
             end_line: 2,
             end_col: 15,
         };
-        
+
         let result = handler.extract_selected_text(&events, &selection);
         assert!(result.is_ok());
         let text = result.unwrap();

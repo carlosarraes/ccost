@@ -1,20 +1,20 @@
 //! Model usage optimization engine
-//! 
+//!
 //! Analyzes historical model usage patterns to identify opportunities
 //! for cost savings by suggesting more appropriate model choices.
 
-use std::collections::HashMap;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
-use crate::parser::jsonl::UsageData;
 use crate::models::PricingManager;
+use crate::parser::jsonl::UsageData;
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Confidence level for optimization recommendations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConfidenceLevel {
     Low,    // 0.0 - 0.4
-    Medium, // 0.4 - 0.7  
+    Medium, // 0.4 - 0.7
     High,   // 0.7 - 1.0
 }
 
@@ -130,12 +130,18 @@ impl ModelPatternAnalyzer {
     }
 
     /// Analyze a conversation to extract patterns
-    pub fn analyze_conversation(&self, conversation_data: &[UsageData]) -> Result<ConversationPattern> {
+    pub fn analyze_conversation(
+        &self,
+        conversation_data: &[UsageData],
+    ) -> Result<ConversationPattern> {
         if conversation_data.is_empty() {
             return Err(anyhow::anyhow!("Cannot analyze empty conversation"));
         }
 
-        let uuid = conversation_data[0].uuid.clone().unwrap_or_else(|| "unknown".to_string());
+        let uuid = conversation_data[0]
+            .uuid
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
         let message_count = conversation_data.len() as u32;
 
         // Extract tokens and model info
@@ -211,7 +217,7 @@ impl ModelPatternAnalyzer {
         } else {
             0.0
         };
-        
+
         let average_output_length = if message_count > 0 {
             total_output_tokens as f64 / message_count as f64
         } else {
@@ -221,19 +227,22 @@ impl ModelPatternAnalyzer {
         // Calculate duration
         let duration_minutes = if timestamps.len() >= 2 {
             timestamps.sort();
-            let duration = timestamps.last().unwrap().signed_duration_since(*timestamps.first().unwrap());
+            let duration = timestamps
+                .last()
+                .unwrap()
+                .signed_duration_since(*timestamps.first().unwrap());
             Some(duration.num_minutes() as f64)
         } else {
             None
         };
 
         // Determine if it's simple Q&A
-        let is_simple_qa = !has_code_generation && 
-                          !has_complex_reasoning && 
-                          simple_qa_indicators >= (total_messages / 2) && 
-                          message_count <= 5 &&
-                          total_input_tokens < 10000 &&
-                          total_output_tokens < 15000;
+        let is_simple_qa = !has_code_generation
+            && !has_complex_reasoning
+            && simple_qa_indicators >= (total_messages / 2)
+            && message_count <= 5
+            && total_input_tokens < 10000
+            && total_output_tokens < 15000;
 
         Ok(ConversationPattern {
             uuid,
@@ -264,12 +273,26 @@ impl SavingsCalculator {
     }
 
     /// Calculate potential savings for switching models
-    pub fn calculate_savings(&self, pattern: &ConversationPattern, suggested_model: &str) -> Result<(f64, f64)> {
-        let current_pricing = self.pricing_manager.get_pricing(&pattern.current_model)
-            .unwrap_or_else(|| self.pricing_manager.get_pricing_with_fallback(&pattern.current_model));
-        
-        let suggested_pricing = self.pricing_manager.get_pricing(suggested_model)
-            .unwrap_or_else(|| self.pricing_manager.get_pricing_with_fallback(suggested_model));
+    pub fn calculate_savings(
+        &self,
+        pattern: &ConversationPattern,
+        suggested_model: &str,
+    ) -> Result<(f64, f64)> {
+        let current_pricing = self
+            .pricing_manager
+            .get_pricing(&pattern.current_model)
+            .unwrap_or_else(|| {
+                self.pricing_manager
+                    .get_pricing_with_fallback(&pattern.current_model)
+            });
+
+        let suggested_pricing = self
+            .pricing_manager
+            .get_pricing(suggested_model)
+            .unwrap_or_else(|| {
+                self.pricing_manager
+                    .get_pricing_with_fallback(suggested_model)
+            });
 
         // Calculate costs for the conversation tokens
         let current_cost = current_pricing.calculate_cost(
@@ -316,13 +339,13 @@ impl RecommendationGenerator {
     pub fn suggest_model(&self, pattern: &ConversationPattern) -> (String, f32, String) {
         // Opus 4 models (high cost, high capability)
         let is_opus = pattern.current_model.contains("opus");
-        
+
         // Complex reasoning or large context requires Opus
         if pattern.has_complex_reasoning && pattern.total_input_tokens > 50000 {
             return (
                 "claude-opus-4-20250514".to_string(),
                 0.9,
-                "Complex reasoning with large context requires Opus capabilities".to_string()
+                "Complex reasoning with large context requires Opus capabilities".to_string(),
             );
         }
 
@@ -331,7 +354,7 @@ impl RecommendationGenerator {
             return (
                 "claude-sonnet-4-20250514".to_string(),
                 0.8,
-                "Code generation in extended conversations is well-suited for Sonnet".to_string()
+                "Code generation in extended conversations is well-suited for Sonnet".to_string(),
             );
         }
 
@@ -340,18 +363,19 @@ impl RecommendationGenerator {
             return (
                 "claude-haiku-3-5-20241022".to_string(),
                 0.9,
-                "Simple question-and-answer patterns are perfect for Haiku".to_string()
+                "Simple question-and-answer patterns are perfect for Haiku".to_string(),
             );
         }
 
         // Short conversations without complex reasoning can use Haiku
-        if pattern.message_count <= 3 && 
-           !pattern.has_complex_reasoning && 
-           pattern.total_input_tokens < 5000 {
+        if pattern.message_count <= 3
+            && !pattern.has_complex_reasoning
+            && pattern.total_input_tokens < 5000
+        {
             return (
                 "claude-haiku-3-5-20241022".to_string(),
                 0.8,
-                "Short, simple conversations are cost-effective with Haiku".to_string()
+                "Short, simple conversations are cost-effective with Haiku".to_string(),
             );
         }
 
@@ -360,18 +384,19 @@ impl RecommendationGenerator {
             return (
                 "claude-sonnet-4-20250514".to_string(),
                 0.7,
-                "Code generation tasks are well-handled by Sonnet".to_string()
+                "Code generation tasks are well-handled by Sonnet".to_string(),
             );
         }
 
         // Medium-length conversations without special requirements can use Sonnet
-        if pattern.message_count <= 8 && 
-           pattern.total_input_tokens < 20000 && 
-           !pattern.has_complex_reasoning {
+        if pattern.message_count <= 8
+            && pattern.total_input_tokens < 20000
+            && !pattern.has_complex_reasoning
+        {
             return (
                 "claude-sonnet-4-20250514".to_string(),
                 0.6,
-                "Standard conversations work well with Sonnet".to_string()
+                "Standard conversations work well with Sonnet".to_string(),
             );
         }
 
@@ -388,21 +413,26 @@ impl RecommendationGenerator {
         (
             pattern.current_model.clone(),
             0.1,
-            "Current model selection appears appropriate for this use case".to_string()
+            "Current model selection appears appropriate for this use case".to_string(),
         )
     }
 
     /// Generate optimization recommendation for a pattern
-    pub fn generate_recommendation(&self, pattern: &ConversationPattern) -> Result<Option<OptimizationRecommendation>> {
+    pub fn generate_recommendation(
+        &self,
+        pattern: &ConversationPattern,
+    ) -> Result<Option<OptimizationRecommendation>> {
         let (suggested_model, confidence_score, reasoning) = self.suggest_model(pattern);
-        
+
         // Only recommend if it's a different model and confidence is reasonable
         if suggested_model == pattern.current_model || confidence_score < 0.3 {
             return Ok(None);
         }
 
-        let (potential_savings, savings_percentage) = self.savings_calculator.calculate_savings(pattern, &suggested_model)?;
-        
+        let (potential_savings, savings_percentage) = self
+            .savings_calculator
+            .calculate_savings(pattern, &suggested_model)?;
+
         // Only recommend if there are meaningful savings (at least 10% or $0.01)
         if potential_savings < 0.01 && savings_percentage < 10.0 {
             return Ok(None);
@@ -411,7 +441,10 @@ impl RecommendationGenerator {
         let total_potential_cost = pattern.total_cost - potential_savings;
 
         Ok(Some(OptimizationRecommendation {
-            conversation_pattern: format!("{} messages, {} input tokens", pattern.message_count, pattern.total_input_tokens),
+            conversation_pattern: format!(
+                "{} messages, {} input tokens",
+                pattern.message_count, pattern.total_input_tokens
+            ),
             current_model: pattern.current_model.clone(),
             suggested_model,
             confidence_score,
@@ -440,7 +473,7 @@ impl OptimizationEngine {
         let calc_pricing_manager = PricingManager::new();
         let savings_calculator = SavingsCalculator::new(calc_pricing_manager);
         let recommendation_generator = RecommendationGenerator::new(pricing_manager);
-        
+
         Self {
             pattern_analyzer: ModelPatternAnalyzer::new(),
             savings_calculator,
@@ -449,13 +482,22 @@ impl OptimizationEngine {
     }
 
     /// Analyze usage data and generate optimization recommendations
-    pub fn analyze_optimization_opportunities(&self, usage_data: Vec<(UsageData, String)>) -> Result<OptimizationSummary> {
+    pub fn analyze_optimization_opportunities(
+        &self,
+        usage_data: Vec<(UsageData, String)>,
+    ) -> Result<OptimizationSummary> {
         // Group usage data by conversation UUID
         let mut conversations: HashMap<String, Vec<UsageData>> = HashMap::new();
-        
+
         for (usage, _project) in usage_data {
-            let uuid = usage.uuid.clone().unwrap_or_else(|| format!("unknown-{}", uuid::Uuid::new_v4()));
-            conversations.entry(uuid).or_insert_with(Vec::new).push(usage);
+            let uuid = usage
+                .uuid
+                .clone()
+                .unwrap_or_else(|| format!("unknown-{}", uuid::Uuid::new_v4()));
+            conversations
+                .entry(uuid)
+                .or_insert_with(Vec::new)
+                .push(usage);
         }
 
         let mut all_recommendations = Vec::new();
@@ -470,15 +512,20 @@ impl OptimizationEngine {
         // Analyze each conversation
         for (_uuid, conv_data) in conversations {
             let pattern = self.pattern_analyzer.analyze_conversation(&conv_data)?;
-            
+
             // Update model distribution
-            *model_distribution.entry(pattern.current_model.clone()).or_insert(0) += 1;
+            *model_distribution
+                .entry(pattern.current_model.clone())
+                .or_insert(0) += 1;
             total_current_cost += pattern.total_cost;
 
             // Generate recommendation
-            if let Some(recommendation) = self.recommendation_generator.generate_recommendation(&pattern)? {
+            if let Some(recommendation) = self
+                .recommendation_generator
+                .generate_recommendation(&pattern)?
+            {
                 total_potential_cost += recommendation.total_potential_cost;
-                
+
                 // Update optimization opportunities by model
                 let opportunity_savings = optimization_opportunities
                     .entry(pattern.current_model.clone())
@@ -495,19 +542,22 @@ impl OptimizationEngine {
         let mut grouped_recommendations = HashMap::new();
         for rec in all_recommendations {
             let key = format!("{}→{}", rec.current_model, rec.suggested_model);
-            let grouped = grouped_recommendations.entry(key).or_insert_with(|| OptimizationRecommendation {
-                conversation_pattern: format!("Multiple conversations"),
-                current_model: rec.current_model.clone(),
-                suggested_model: rec.suggested_model.clone(),
-                confidence_score: 0.0,
-                confidence_level: ConfidenceLevel::Medium,
-                potential_savings: 0.0,
-                potential_savings_percentage: 0.0,
-                reasoning: rec.reasoning.clone(),
-                conversation_count: 0,
-                total_current_cost: 0.0,
-                total_potential_cost: 0.0,
-            });
+            let grouped =
+                grouped_recommendations
+                    .entry(key)
+                    .or_insert_with(|| OptimizationRecommendation {
+                        conversation_pattern: format!("Multiple conversations"),
+                        current_model: rec.current_model.clone(),
+                        suggested_model: rec.suggested_model.clone(),
+                        confidence_score: 0.0,
+                        confidence_level: ConfidenceLevel::Medium,
+                        potential_savings: 0.0,
+                        potential_savings_percentage: 0.0,
+                        reasoning: rec.reasoning.clone(),
+                        conversation_count: 0,
+                        total_current_cost: 0.0,
+                        total_potential_cost: 0.0,
+                    });
 
             grouped.conversation_count += rec.conversation_count;
             grouped.potential_savings += rec.potential_savings;
@@ -524,7 +574,7 @@ impl OptimizationEngine {
                 } else {
                     0.0
                 };
-                
+
                 // Adjust confidence based on number of conversations
                 rec.confidence_score = match rec.conversation_count {
                     1 => 0.5,
@@ -532,13 +582,17 @@ impl OptimizationEngine {
                     _ => 0.9,
                 };
                 rec.confidence_level = rec.confidence_score.into();
-                
+
                 recommendations.push(rec);
             }
         }
 
         // Sort recommendations by potential savings
-        recommendations.sort_by(|a, b| b.potential_savings.partial_cmp(&a.potential_savings).unwrap_or(std::cmp::Ordering::Equal));
+        recommendations.sort_by(|a, b| {
+            b.potential_savings
+                .partial_cmp(&a.potential_savings)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let total_potential_savings = total_current_cost - total_potential_cost;
         let savings_percentage = if total_current_cost > 0.0 {
@@ -560,23 +614,30 @@ impl OptimizationEngine {
     }
 
     /// Filter recommendations by confidence threshold
-    pub fn filter_by_confidence(&self, summary: OptimizationSummary, min_confidence: f32) -> OptimizationSummary {
-        let filtered_recommendations: Vec<OptimizationRecommendation> = summary.recommendations
+    pub fn filter_by_confidence(
+        &self,
+        summary: OptimizationSummary,
+        min_confidence: f32,
+    ) -> OptimizationSummary {
+        let filtered_recommendations: Vec<OptimizationRecommendation> = summary
+            .recommendations
             .into_iter()
             .filter(|rec| rec.confidence_score >= min_confidence)
             .collect();
 
         // Recalculate totals based on filtered recommendations
-        let total_filtered_savings: f64 = filtered_recommendations.iter()
+        let total_filtered_savings: f64 = filtered_recommendations
+            .iter()
             .map(|rec| rec.potential_savings)
             .sum();
-        
-        let total_filtered_current_cost: f64 = filtered_recommendations.iter()
+
+        let total_filtered_current_cost: f64 = filtered_recommendations
+            .iter()
             .map(|rec| rec.total_current_cost)
             .sum();
 
         let _total_filtered_potential_cost = total_filtered_current_cost - total_filtered_savings;
-        
+
         let _filtered_savings_percentage = if total_filtered_current_cost > 0.0 {
             (total_filtered_savings / total_filtered_current_cost) * 100.0
         } else {
@@ -596,12 +657,22 @@ impl OptimizationEngine {
     }
 
     /// Filter recommendations by specific model transition
-    pub fn filter_by_model_transition(&self, summary: OptimizationSummary, from_model: Option<String>, to_model: Option<String>) -> OptimizationSummary {
-        let filtered_recommendations: Vec<OptimizationRecommendation> = summary.recommendations
+    pub fn filter_by_model_transition(
+        &self,
+        summary: OptimizationSummary,
+        from_model: Option<String>,
+        to_model: Option<String>,
+    ) -> OptimizationSummary {
+        let filtered_recommendations: Vec<OptimizationRecommendation> = summary
+            .recommendations
             .into_iter()
             .filter(|rec| {
-                let from_match = from_model.as_ref().map_or(true, |from| rec.current_model.contains(from));
-                let to_match = to_model.as_ref().map_or(true, |to| rec.suggested_model.contains(to));
+                let from_match = from_model
+                    .as_ref()
+                    .map_or(true, |from| rec.current_model.contains(from));
+                let to_match = to_model
+                    .as_ref()
+                    .map_or(true, |to| rec.suggested_model.contains(to));
                 from_match && to_match
             })
             .collect();
@@ -616,9 +687,15 @@ impl OptimizationEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::jsonl::{Usage, Message};
+    use crate::parser::jsonl::{Message, Usage};
 
-    fn create_test_usage_data(model: &str, content: &str, input_tokens: u64, output_tokens: u64, cost: f64) -> UsageData {
+    fn create_test_usage_data(
+        model: &str,
+        content: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        cost: f64,
+    ) -> UsageData {
         UsageData {
             timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid: Some("test-uuid".to_string()),
@@ -646,14 +723,26 @@ mod tests {
     #[test]
     fn test_pattern_analyzer_simple_qa() {
         let analyzer = ModelPatternAnalyzer::new();
-        
+
         let usage_data = vec![
-            create_test_usage_data("claude-opus-4", "What is the capital of France?", 100, 50, 1.0),
-            create_test_usage_data("claude-opus-4", "Can you help me understand this concept?", 150, 75, 1.5),
+            create_test_usage_data(
+                "claude-opus-4",
+                "What is the capital of France?",
+                100,
+                50,
+                1.0,
+            ),
+            create_test_usage_data(
+                "claude-opus-4",
+                "Can you help me understand this concept?",
+                150,
+                75,
+                1.5,
+            ),
         ];
 
         let pattern = analyzer.analyze_conversation(&usage_data).unwrap();
-        
+
         assert_eq!(pattern.message_count, 2);
         assert!(pattern.is_simple_qa);
         assert!(!pattern.has_code_generation);
@@ -663,14 +752,26 @@ mod tests {
     #[test]
     fn test_pattern_analyzer_code_generation() {
         let analyzer = ModelPatternAnalyzer::new();
-        
+
         let usage_data = vec![
-            create_test_usage_data("claude-sonnet-4", "Write a function to sort an array", 200, 300, 2.0),
-            create_test_usage_data("claude-sonnet-4", "```python\ndef sort_array(arr):\n    return sorted(arr)\n```", 150, 400, 2.5),
+            create_test_usage_data(
+                "claude-sonnet-4",
+                "Write a function to sort an array",
+                200,
+                300,
+                2.0,
+            ),
+            create_test_usage_data(
+                "claude-sonnet-4",
+                "```python\ndef sort_array(arr):\n    return sorted(arr)\n```",
+                150,
+                400,
+                2.5,
+            ),
         ];
 
         let pattern = analyzer.analyze_conversation(&usage_data).unwrap();
-        
+
         assert!(pattern.has_code_generation);
         assert!(!pattern.is_simple_qa);
     }
@@ -679,7 +780,7 @@ mod tests {
     fn test_recommendation_generator_opus_to_sonnet() {
         let pricing_manager = PricingManager::new();
         let generator = RecommendationGenerator::new(pricing_manager);
-        
+
         let pattern = ConversationPattern {
             uuid: "test".to_string(),
             message_count: 3,
@@ -696,7 +797,7 @@ mod tests {
         };
 
         let (suggested_model, confidence, reasoning) = generator.suggest_model(&pattern);
-        
+
         assert_eq!(suggested_model, "claude-sonnet-4-20250514");
         assert!(confidence > 0.5);
         assert!(reasoning.contains("Code generation"));
@@ -706,7 +807,7 @@ mod tests {
     fn test_recommendation_generator_simple_qa_to_haiku() {
         let pricing_manager = PricingManager::new();
         let generator = RecommendationGenerator::new(pricing_manager);
-        
+
         let pattern = ConversationPattern {
             uuid: "test".to_string(),
             message_count: 2,
@@ -723,7 +824,7 @@ mod tests {
         };
 
         let (suggested_model, confidence, reasoning) = generator.suggest_model(&pattern);
-        
+
         assert_eq!(suggested_model, "claude-haiku-3-5-20241022");
         assert!(confidence > 0.8);
         assert!(reasoning.contains("Simple question-and-answer"));
@@ -733,11 +834,11 @@ mod tests {
     fn test_savings_calculator() {
         let pricing_manager = PricingManager::new();
         let calculator = SavingsCalculator::new(pricing_manager);
-        
+
         let pattern = ConversationPattern {
             uuid: "test".to_string(),
             message_count: 2,
-            total_input_tokens: 1000000, // 1M tokens
+            total_input_tokens: 1000000,  // 1M tokens
             total_output_tokens: 1000000, // 1M tokens
             average_input_length: 500000.0,
             average_output_length: 500000.0,
@@ -749,8 +850,10 @@ mod tests {
             total_cost: 90.0, // Opus: 15 + 75 = 90
         };
 
-        let (savings, percentage) = calculator.calculate_savings(&pattern, "claude-haiku-3-5-20241022").unwrap();
-        
+        let (savings, percentage) = calculator
+            .calculate_savings(&pattern, "claude-haiku-3-5-20241022")
+            .unwrap();
+
         // Opus: 15 + 75 = 90, Haiku: 1 + 5 = 6, Savings: 84
         assert!((savings - 84.0).abs() < 0.1);
         assert!((percentage - 93.33).abs() < 0.1);
@@ -760,24 +863,39 @@ mod tests {
     fn test_optimization_engine_integration() {
         let pricing_manager = PricingManager::new();
         let engine = OptimizationEngine::new(pricing_manager);
-        
+
         let usage_data = vec![
-            (create_test_usage_data("claude-opus-4-20250514", "What is 2+2?", 100, 50, 1.0), "project1".to_string()),
-            (create_test_usage_data("claude-opus-4-20250514", "Can you help me?", 150, 75, 1.5), "project1".to_string()),
+            (
+                create_test_usage_data("claude-opus-4-20250514", "What is 2+2?", 100, 50, 1.0),
+                "project1".to_string(),
+            ),
+            (
+                create_test_usage_data("claude-opus-4-20250514", "Can you help me?", 150, 75, 1.5),
+                "project1".to_string(),
+            ),
         ];
 
-        let summary = engine.analyze_optimization_opportunities(usage_data).unwrap();
-        
+        let summary = engine
+            .analyze_optimization_opportunities(usage_data)
+            .unwrap();
+
         assert_eq!(summary.total_conversations_analyzed, 1);
         assert!(summary.total_potential_savings > 0.0);
         assert!(!summary.recommendations.is_empty());
-        assert!(summary.model_distribution.contains_key("claude-opus-4-20250514"));
+        assert!(
+            summary
+                .model_distribution
+                .contains_key("claude-opus-4-20250514")
+        );
     }
 
     #[test]
     fn test_confidence_level_conversion() {
         assert!(matches!(ConfidenceLevel::from(0.2), ConfidenceLevel::Low));
-        assert!(matches!(ConfidenceLevel::from(0.5), ConfidenceLevel::Medium));
+        assert!(matches!(
+            ConfidenceLevel::from(0.5),
+            ConfidenceLevel::Medium
+        ));
         assert!(matches!(ConfidenceLevel::from(0.8), ConfidenceLevel::High));
     }
 }

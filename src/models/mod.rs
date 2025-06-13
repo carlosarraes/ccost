@@ -1,5 +1,5 @@
 // Models module
-pub mod pricing;
 pub mod currency;
+pub mod pricing;
 
 pub use pricing::PricingManager;

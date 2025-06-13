@@ -1,18 +1,20 @@
 // Analysis module
-pub mod usage;
+pub mod conversations;
+pub mod optimization;
 pub mod projects;
 pub mod timeline;
 pub mod timezone;
-pub mod optimization;
-pub mod conversations;
+pub mod usage;
 
 // Re-export key types for easier access
-pub use usage::{UsageTracker, UsageFilter, CostCalculationMode};
+pub use conversations::{
+    ConversationAnalyzer, ConversationFilter, ConversationInsight, ConversationInsightList,
+    ConversationSortBy,
+};
+pub use optimization::OptimizationEngine;
 pub use projects::{ProjectAnalyzer, ProjectSortBy};
 pub use timezone::TimezoneCalculator;
-pub use optimization::OptimizationEngine;
-pub use conversations::{ConversationAnalyzer, ConversationInsight, ConversationInsightList, ConversationFilter, ConversationSortBy};
-
+pub use usage::{CostCalculationMode, UsageFilter, UsageTracker};
 
 use crate::output::OutputFormat;
 use serde::Serialize;
@@ -106,14 +108,13 @@ impl OutputFormat for DailyUsageList {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use crate::parser::jsonl::{UsageData, Usage, Message};
-
+    use crate::parser::jsonl::{Message, Usage, UsageData};
 
     #[test]
     fn test_cost_calculation_mode_integration() {
         // Test Auto mode with mixed embedded/missing costs
         let tracker_auto = UsageTracker::new(CostCalculationMode::Auto);
-        
+
         let messages = vec![
             // Message with embedded cost
             UsageData {
@@ -154,13 +155,16 @@ mod integration_tests {
                 original_cwd: None,
             },
         ];
-        
-        let enhanced_data: Vec<(UsageData, String)> = messages.into_iter()
+
+        let enhanced_data: Vec<(UsageData, String)> = messages
+            .into_iter()
             .map(|data| (data, "auto_test".to_string()))
             .collect();
-        let usage_results = tracker_auto.calculate_usage_with_projects(enhanced_data, &crate::models::PricingManager::new()).unwrap();
+        let usage_results = tracker_auto
+            .calculate_usage_with_projects(enhanced_data, &crate::models::PricingManager::new())
+            .unwrap();
         let usage = &usage_results[0];
-        
+
         // Should use embedded cost for first message, calculated cost for second
         assert_eq!(usage.total_cost_usd, 0.75); // 0.75 + 0.0 (calculated)
         assert_eq!(usage.total_input_tokens, 300);

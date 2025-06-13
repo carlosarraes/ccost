@@ -1,10 +1,10 @@
+use crate::models::PricingManager;
+use crate::output::OutputFormat;
+use crate::parser::jsonl::UsageData;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::HashMap;
-use crate::parser::jsonl::UsageData;
-use crate::models::PricingManager;
-use crate::output::OutputFormat;
 
 /// Represents a conversation with all its messages and metadata
 #[derive(Debug, Clone, Serialize)]
@@ -200,13 +200,22 @@ impl ConversationAnalyzer {
 
             // Sort messages by timestamp
             messages.sort_by(|a, b| {
-                let time_a = a.0.timestamp.as_ref().and_then(|t| self.parse_timestamp(t)).unwrap_or(Utc::now());
-                let time_b = b.0.timestamp.as_ref().and_then(|t| self.parse_timestamp(t)).unwrap_or(Utc::now());
+                let time_a =
+                    a.0.timestamp
+                        .as_ref()
+                        .and_then(|t| self.parse_timestamp(t))
+                        .unwrap_or(Utc::now());
+                let time_b =
+                    b.0.timestamp
+                        .as_ref()
+                        .and_then(|t| self.parse_timestamp(t))
+                        .unwrap_or(Utc::now());
                 time_a.cmp(&time_b)
             });
 
             let project_name = messages[0].1.clone();
-            let usage_messages: Vec<UsageData> = messages.into_iter().map(|(data, _)| data).collect();
+            let usage_messages: Vec<UsageData> =
+                messages.into_iter().map(|(data, _)| data).collect();
 
             // Calculate time span
             let start_time = usage_messages
@@ -301,7 +310,8 @@ impl ConversationAnalyzer {
                     if let Some(usage) = &message.usage {
                         model_entry.input_tokens += usage.input_tokens.unwrap_or(0);
                         model_entry.output_tokens += usage.output_tokens.unwrap_or(0);
-                        model_entry.cache_creation_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
+                        model_entry.cache_creation_tokens +=
+                            usage.cache_creation_input_tokens.unwrap_or(0);
                         model_entry.cache_read_tokens += usage.cache_read_input_tokens.unwrap_or(0);
                     }
                 }
@@ -311,14 +321,23 @@ impl ConversationAnalyzer {
         // Calculate cost percentages for models
         for model_usage_entry in model_usage.values_mut() {
             if total_cost > 0.0 {
-                model_usage_entry.cost_percentage = (model_usage_entry.cost_usd / total_cost * 100.0) as f32;
+                model_usage_entry.cost_percentage =
+                    (model_usage_entry.cost_usd / total_cost * 100.0) as f32;
             }
         }
 
         let message_count = conversation.messages.len() as u64;
-        let cost_per_message = if message_count > 0 { total_cost / message_count as f64 } else { 0.0 };
+        let cost_per_message = if message_count > 0 {
+            total_cost / message_count as f64
+        } else {
+            0.0
+        };
         let total_tokens = total_input_tokens + total_output_tokens;
-        let cost_per_token = if total_tokens > 0 { total_cost / total_tokens as f64 } else { 0.0 };
+        let cost_per_token = if total_tokens > 0 {
+            total_cost / total_tokens as f64
+        } else {
+            0.0
+        };
 
         // Calculate cache hit rate
         let cache_total = total_cache_creation_tokens + total_cache_read_tokens;
@@ -386,7 +405,11 @@ impl ConversationAnalyzer {
     ) -> Vec<ConversationInsight> {
         match sort_by {
             ConversationSortBy::Cost => {
-                insights.sort_by(|a, b| b.total_cost.partial_cmp(&a.total_cost).unwrap_or(std::cmp::Ordering::Equal));
+                insights.sort_by(|a, b| {
+                    b.total_cost
+                        .partial_cmp(&a.total_cost)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             ConversationSortBy::Tokens => {
                 insights.sort_by(|a, b| {
@@ -396,13 +419,21 @@ impl ConversationAnalyzer {
                 });
             }
             ConversationSortBy::Efficiency => {
-                insights.sort_by(|a, b| a.efficiency_score.partial_cmp(&b.efficiency_score).unwrap_or(std::cmp::Ordering::Equal));
+                insights.sort_by(|a, b| {
+                    a.efficiency_score
+                        .partial_cmp(&b.efficiency_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             ConversationSortBy::Messages => {
                 insights.sort_by(|a, b| b.message_count.cmp(&a.message_count));
             }
             ConversationSortBy::Duration => {
-                insights.sort_by(|a, b| b.duration_minutes.partial_cmp(&a.duration_minutes).unwrap_or(std::cmp::Ordering::Equal));
+                insights.sort_by(|a, b| {
+                    b.duration_minutes
+                        .partial_cmp(&a.duration_minutes)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             ConversationSortBy::StartTime => {
                 insights.sort_by(|a, b| b.start_time.cmp(&a.start_time));
@@ -518,7 +549,11 @@ impl EfficiencyCalculator {
         let mut score = 100.0; // Start with perfect score
 
         // Cost efficiency (lower cost per token is better)
-        let cost_per_token = if total_tokens > 0 { total_cost / total_tokens as f64 } else { 0.0 };
+        let cost_per_token = if total_tokens > 0 {
+            total_cost / total_tokens as f64
+        } else {
+            0.0
+        };
         let cost_penalty = (cost_per_token * 1000000.0).min(50.0) as f32; // Cap at 50 point penalty
         score -= cost_penalty * self.cost_weight;
 
@@ -532,7 +567,11 @@ impl EfficiencyCalculator {
         score -= cache_penalty * self.cache_weight;
 
         // Message efficiency (longer messages are generally more efficient)
-        let avg_tokens_per_message = if message_count > 0 { total_tokens as f32 / message_count as f32 } else { 0.0 };
+        let avg_tokens_per_message = if message_count > 0 {
+            total_tokens as f32 / message_count as f32
+        } else {
+            0.0
+        };
         let message_efficiency = (avg_tokens_per_message / 1000.0).min(1.0); // Normalize to 0-1
         score -= (1.0 - message_efficiency) * 15.0 * self.message_weight;
 
@@ -544,9 +583,9 @@ impl OutlierDetector {
     pub fn new() -> Self {
         Self {
             high_cost_threshold: 10.0,      // $10 per conversation
-            high_token_threshold: 100_000,   // 100k tokens
-            low_efficiency_threshold: 40.0,  // Below 40% efficiency
-            poor_cache_hit_threshold: 0.1,   // Below 10% cache hit rate
+            high_token_threshold: 100_000,  // 100k tokens
+            low_efficiency_threshold: 40.0, // Below 40% efficiency
+            poor_cache_hit_threshold: 0.1,  // Below 10% cache hit rate
         }
     }
 
@@ -617,7 +656,8 @@ impl OutlierDetector {
                 flag_type: OutlierType::PoorCacheHit,
                 description: format!(
                     "Poor cache hit rate: {:.1}% (threshold: {:.1}%)",
-                    cache_hit_rate * 100.0, self.poor_cache_hit_threshold * 100.0
+                    cache_hit_rate * 100.0,
+                    self.poor_cache_hit_threshold * 100.0
                 ),
                 severity: OutlierSeverity::Medium,
                 metric_value: cache_hit_rate as f64,
@@ -672,9 +712,7 @@ impl RecommendationEngine {
     }
 
     pub fn with_pricing_manager(pricing_manager: PricingManager) -> Self {
-        Self {
-            pricing_manager,
-        }
+        Self { pricing_manager }
     }
 
     pub fn generate_recommendations(
@@ -714,7 +752,9 @@ impl RecommendationEngine {
         if efficiency_score < 50.0 {
             tips.push(OptimizationTip {
                 tip_type: OptimizationType::TokenEfficiency,
-                description: "Low token efficiency. Consider shorter, more focused prompts and responses.".to_string(),
+                description:
+                    "Low token efficiency. Consider shorter, more focused prompts and responses."
+                        .to_string(),
                 potential_savings: Some(total_cost * 0.2),
                 confidence: 0.5,
             });
@@ -722,7 +762,10 @@ impl RecommendationEngine {
 
         // Message length recommendations
         let avg_tokens_per_message = if conversation.messages.len() > 0 {
-            let total_tokens: u64 = model_usage.values().map(|u| u.input_tokens + u.output_tokens).sum();
+            let total_tokens: u64 = model_usage
+                .values()
+                .map(|u| u.input_tokens + u.output_tokens)
+                .sum();
             total_tokens as f64 / conversation.messages.len() as f64
         } else {
             0.0
@@ -758,12 +801,17 @@ impl OutputFormat for ConversationInsightList {
         self.to_table_with_currency_and_color(currency, decimal_places, false)
     }
 
-    fn to_table_with_currency_and_color(&self, currency: &str, decimal_places: u8, colored: bool) -> String {
+    fn to_table_with_currency_and_color(
+        &self,
+        currency: &str,
+        decimal_places: u8,
+        colored: bool,
+    ) -> String {
         if self.0.is_empty() {
             return "No conversation insights found.".to_string();
         }
 
-        use crate::output::table::{apply_table_style_with_color, format_number, TableType};
+        use crate::output::table::{TableType, apply_table_style_with_color, format_number};
         use tabled::{Table, Tabled};
 
         #[derive(Tabled)]
@@ -786,44 +834,52 @@ impl OutputFormat for ConversationInsightList {
             duration: String,
         }
 
-        let rows: Vec<ConversationRow> = self.0.iter().map(|insight| {
-            let conversation_id = if insight.conversation_id.len() > 12 {
-                format!("{}...", &insight.conversation_id[..12])
-            } else {
-                insight.conversation_id.clone()
-            };
+        let rows: Vec<ConversationRow> = self
+            .0
+            .iter()
+            .map(|insight| {
+                let conversation_id = if insight.conversation_id.len() > 12 {
+                    format!("{}...", &insight.conversation_id[..12])
+                } else {
+                    insight.conversation_id.clone()
+                };
 
-            let models: Vec<String> = insight.model_usage.keys().cloned().collect();
-            let models_str = if models.len() > 2 {
-                format!("{}, {} (+{})", models[0], models[1], models.len() - 2)
-            } else {
-                models.join(", ")
-            };
+                let models: Vec<String> = insight.model_usage.keys().cloned().collect();
+                let models_str = if models.len() > 2 {
+                    format!("{}, {} (+{})", models[0], models[1], models.len() - 2)
+                } else {
+                    models.join(", ")
+                };
 
-            let outlier_count = insight.outlier_flags.len();
-            let outliers_str = if outlier_count > 0 {
-                format!("{} issues", outlier_count)
-            } else {
-                "None".to_string()
-            };
+                let outlier_count = insight.outlier_flags.len();
+                let outliers_str = if outlier_count > 0 {
+                    format!("{} issues", outlier_count)
+                } else {
+                    "None".to_string()
+                };
 
-            let duration_str = if insight.duration_minutes > 60.0 {
-                format!("{:.1}h", insight.duration_minutes / 60.0)
-            } else {
-                format!("{:.1}m", insight.duration_minutes)
-            };
+                let duration_str = if insight.duration_minutes > 60.0 {
+                    format!("{:.1}h", insight.duration_minutes / 60.0)
+                } else {
+                    format!("{:.1}m", insight.duration_minutes)
+                };
 
-            ConversationRow {
-                conversation_id,
-                project: insight.project_name.clone(),
-                messages: format_number(insight.message_count),
-                total_cost: crate::models::currency::format_currency(insight.total_cost, currency, decimal_places),
-                efficiency: format!("{:.1}%", insight.efficiency_score),
-                models: models_str,
-                outliers: outliers_str,
-                duration: duration_str,
-            }
-        }).collect();
+                ConversationRow {
+                    conversation_id,
+                    project: insight.project_name.clone(),
+                    messages: format_number(insight.message_count),
+                    total_cost: crate::models::currency::format_currency(
+                        insight.total_cost,
+                        currency,
+                        decimal_places,
+                    ),
+                    efficiency: format!("{:.1}%", insight.efficiency_score),
+                    models: models_str,
+                    outliers: outliers_str,
+                    duration: duration_str,
+                }
+            })
+            .collect();
 
         apply_table_style_with_color(Table::new(rows), colored, TableType::Conversations)
     }

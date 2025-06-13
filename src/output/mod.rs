@@ -1,5 +1,5 @@
 // Output module
-pub mod table;
 pub mod export;
+pub mod table;
 
-pub use table::{OutputFormat, DailyUsageRow};
+pub use table::{DailyUsageRow, OutputFormat};
