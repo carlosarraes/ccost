@@ -4,7 +4,7 @@
 
 **Accurate Claude API usage tracking with intelligent deduplication**
 
-[![GitHub Release](https://img.shields.io/github/v/release/carlosarraes/ccost)](https://github.com/carlosarraes/ccost/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/carlosarraes/ccost?style=flat&color=blue)](https://github.com/carlosarraes/ccost/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=flat&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 
