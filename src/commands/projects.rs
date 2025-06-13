@@ -2,6 +2,7 @@
 
 use crate::cli::ProjectSort;
 
+#[allow(unused_variables)]
 pub async fn handle_projects_command(
     sort_by: Option<ProjectSort>,
     target_currency: &str,
