@@ -15,6 +15,33 @@
 
 ## OPEN TASKS
 
+### High Priority - Code Cleanup
+
+#### TASK-049: Remove Broken Watch Mode
+**Priority**: High | **Complexity**: Medium | **Status**: Open
+
+Remove the non-functional watch mode from the codebase to clean up the code and prevent user confusion.
+
+**Background**:
+- Watch mode was identified as completely broken during README creation
+- Showing broken functionality in documentation/screenshots is unprofessional
+- Code contains extensive watch mode implementation that doesn't work
+
+**Tasks**:
+- [ ] Remove all watch mode related code from src/watch/ directory
+- [ ] Remove watch mode CLI command and arguments from clap
+- [ ] Remove ratatui, crossterm, notify dependencies from Cargo.toml
+- [ ] Update help text to remove watch mode references
+- [ ] Clean up any watch mode imports in main.rs
+- [ ] Verify all remaining functionality still works after removal
+
+**Files to modify**:
+- `src/main.rs` - Remove watch command handling
+- `src/cli.rs` - Remove watch mode CLI arguments
+- `src/watch/` - Delete entire directory
+- `Cargo.toml` - Remove watch mode dependencies
+- Any other files with watch mode imports
+
 ### High Priority - Release Ready
 
 #### TASK-045: Automated CI/CD Release Pipeline ✅ COMPLETED
