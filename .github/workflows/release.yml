@@ -34,30 +34,39 @@ jobs:
       
       - name: Create Release
         id: create_release
-        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.VERSION }}
-          release_name: ccost ${{ steps.get_version.outputs.VERSION }}
-          body: |
-            ## ccost ${{ steps.get_version.outputs.VERSION }}
-            
-            ### Installation
-            
-            **Linux (x86_64)**:
-            ```bash
-            curl -sSf https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
-            ```
-            
-            **Manual Download**:
-            Download the appropriate binary for your platform below.
-            
-            ### Changes
-            
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
-          draft: false
-          prerelease: false
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          RELEASE_BODY="## ccost $VERSION
+
+          ### Installation
+
+          **Linux (x86_64)**:
+          \`\`\`bash
+          curl -sSf https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+          \`\`\`
+
+          **Manual Download**:
+          Download the appropriate binary for your platform below.
+
+          ### Changes
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes."
+          
+          # Create the release using gh CLI
+          gh release create "$VERSION" \
+            --title "ccost $VERSION" \
+            --notes "$RELEASE_BODY" \
+            --target main
+          
+          # Get the upload URL for artifacts
+          UPLOAD_URL=$(gh api repos/${{ github.repository }}/releases/tags/$VERSION --jq '.upload_url' | sed 's/{?name,label}//g')
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+          
+          # Get release ID
+          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/tags/$VERSION --jq '.id')
+          echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
 
   build:
     needs: create-release
@@ -111,14 +120,18 @@ jobs:
           tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.binary_name }}
           
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/${{ matrix.asset_name }}.tar.gz
-          asset_name: ${{ matrix.asset_name }}.tar.gz
-          asset_content_type: application/gzip
+        run: |
+          # Get the version from the tag
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          
+          # Upload the asset using gh CLI
+          gh release upload "$VERSION" "./dist/${{ matrix.asset_name }}.tar.gz" --clobber
 
   test-binaries:
     needs: [create-release, build]
