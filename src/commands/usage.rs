@@ -6,7 +6,7 @@ use crate::models::PricingManager;
 use crate::output::OutputFormat;
 use crate::parser::deduplication::DeduplicationEngine;
 use crate::parser::jsonl::JsonlParser;
-use crate::utils::{EnhancedUsageData, resolve_filters, print_filter_info, apply_usage_filters};
+use crate::utils::{EnhancedUsageData, resolve_filters, print_filter_info, apply_usage_filters, DateFormatter};
 use std::path::PathBuf;
 use std::collections::HashMap;
 use chrono::Utc;
@@ -24,6 +24,7 @@ pub async fn handle_usage_command(
     colored: bool,
     timezone_name: &str,
     daily_cutoff_hour: u8,
+    date_format: &str,
 ) -> anyhow::Result<()> {
     // Initialize timezone calculator
     let timezone_calc = match TimezoneCalculator::new(timezone_name, daily_cutoff_hour) {
@@ -36,6 +37,22 @@ pub async fn handle_usage_command(
                 );
             } else {
                 eprintln!("Error: Invalid timezone configuration: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
+    // Initialize date formatter
+    let date_formatter = match DateFormatter::new(date_format) {
+        Ok(formatter) => formatter,
+        Err(e) => {
+            if json_output {
+                println!(
+                    r#"{{"status": "error", "message": "Invalid date format configuration: {}"}}"#,
+                    e
+                );
+            } else {
+                eprintln!("Error: Invalid date format configuration: {}", e);
             }
             std::process::exit(1);
         }
@@ -95,6 +112,7 @@ pub async fn handle_usage_command(
             colored,
             timezone_name,
             daily_cutoff_hour,
+            date_format,
         )
         .await?;
         return Ok(());
@@ -113,7 +131,7 @@ pub async fn handle_usage_command(
     };
 
     if verbose {
-        print_filter_info(&usage_filter, json_output);
+        print_filter_info(&usage_filter, json_output, &date_formatter);
     }
 
     if verbose && !json_output {
@@ -373,7 +391,24 @@ pub async fn handle_daily_usage_command(
     colored: bool,
     _timezone_name: &str,
     _daily_cutoff_hour: u8,
+    date_format: &str,
 ) -> anyhow::Result<()> {
+    // Initialize date formatter
+    let date_formatter = match DateFormatter::new(date_format) {
+        Ok(formatter) => formatter,
+        Err(e) => {
+            if json_output {
+                println!(
+                    r#"{{"status": "error", "message": "Invalid date format configuration: {}"}}"#,
+                    e
+                );
+            } else {
+                eprintln!("Error: Invalid date format configuration: {}", e);
+            }
+            std::process::exit(1);
+        }
+    };
+
     // Find and parse JSONL files - use config setting
     let config_for_projects = match Config::load() {
         Ok(config) => config,
@@ -578,7 +613,11 @@ pub async fn handle_daily_usage_command(
                     continue;
                 }
 
-                message_date.format("%Y-%m-%d").to_string()
+                if json_output {
+                    date_formatter.format_naive_date_for_json(&message_date)
+                } else {
+                    date_formatter.format_naive_date_for_table(&message_date)
+                }
             } else {
                 continue; // Skip messages with unparseable timestamps
             }
@@ -640,7 +679,11 @@ pub async fn handle_daily_usage_command(
     for enhanced in all_usage_data.iter() {
         if let Some(timestamp_str) = &enhanced.usage_data.timestamp {
             if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
-                let date_key = message_time.date_naive().format("%Y-%m-%d").to_string();
+                let date_key = if json_output {
+                    date_formatter.format_naive_date_for_json(&message_time.date_naive())
+                } else {
+                    date_formatter.format_naive_date_for_table(&message_time.date_naive())
+                };
                 if daily_usage_map.contains_key(&date_key) {
                     project_sets_by_day
                         .entry(date_key)

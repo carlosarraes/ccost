@@ -28,6 +28,7 @@ pub struct OutputConfig {
     pub format: String, // "table" or "json"
     pub colored: bool,
     pub decimal_places: u8,
+    pub date_format: String, // Date display format: "yyyy-mm-dd", "dd-mm-yyyy", "mm-dd-yyyy"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +53,7 @@ impl Default for Config {
                 format: "table".to_string(),
                 colored: false,
                 decimal_places: 2,
+                date_format: "yyyy-mm-dd".to_string(),
             },
             timezone: TimezoneConfig {
                 timezone: "UTC".to_string(),
@@ -162,6 +164,14 @@ impl Config {
         output.push_str("# Default: 2 (e.g., $12.34)\n");
         output.push_str("# Increase for more precision, decrease for cleaner display\n");
         output.push_str(&format!("decimal_places = {}\n", self.output.decimal_places));
+        output.push_str("\n");
+        output.push_str("# Date format for table output display\n");
+        output.push_str("# Options:\n");
+        output.push_str("#   \"yyyy-mm-dd\" - ISO standard format (2024-03-15) - recommended\n");
+        output.push_str("#   \"dd-mm-yyyy\" - European format (15-03-2024)\n");
+        output.push_str("#   \"mm-dd-yyyy\" - American format (03-15-2024)\n");
+        output.push_str("# Note: JSON output always uses ISO format regardless of this setting\n");
+        output.push_str(&format!("date_format = \"{}\"\n", self.output.date_format));
         output.push_str("\n");
         
         // Timezone settings
