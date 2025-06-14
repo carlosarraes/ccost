@@ -97,13 +97,7 @@ pub struct UsageData {
 
 #[derive(Debug, Clone)]
 pub struct ParsedConversation {
-    pub project_path: PathBuf,
-    pub file_path: PathBuf,
     pub messages: Vec<UsageData>,
-    pub total_lines: usize,
-    pub parsed_lines: usize,
-    pub skipped_lines: usize,
-    pub smart_project_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -134,10 +128,6 @@ impl JsonlParser {
         }
     }
 
-    /// Parse a single JSONL file
-    pub fn parse_file(&self, file_path: &Path) -> Result<ParsedConversation> {
-        self.parse_file_with_verbose(file_path, false)
-    }
 
     /// Parse a single JSONL file with optional verbose output
     pub fn parse_file_with_verbose(
@@ -145,19 +135,19 @@ impl JsonlParser {
         file_path: &Path,
         verbose: bool,
     ) -> Result<ParsedConversation> {
-        let project_path = self.extract_project_path(file_path)?;
+        let _project_path = self.extract_project_path(file_path)?;
 
         let file = File::open(file_path)
             .map_err(|e| anyhow!("Failed to open file {}: {}", file_path.display(), e))?;
 
         let reader = BufReader::new(file);
         let mut messages = Vec::new();
-        let mut total_lines = 0;
-        let mut parsed_lines = 0;
-        let mut skipped_lines = 0;
+        let mut _total_lines = 0;
+        let mut _parsed_lines = 0;
+        let mut _skipped_lines = 0;
 
         for (line_num, line_result) in reader.lines().enumerate() {
-            total_lines += 1;
+            _total_lines += 1;
 
             match line_result {
                 Ok(line) => {
@@ -168,11 +158,11 @@ impl JsonlParser {
                     match self.parse_line(&line, line_num + 1, file_path) {
                         Ok(Some(usage_data)) => {
                             messages.push(usage_data);
-                            parsed_lines += 1;
+                            _parsed_lines += 1;
                         }
                         Ok(None) => {
                             // Line was intentionally skipped (e.g., missing required fields)
-                            skipped_lines += 1;
+                            _skipped_lines += 1;
                         }
                         Err(e) => {
                             if verbose {
@@ -183,7 +173,7 @@ impl JsonlParser {
                                     e
                                 );
                             }
-                            skipped_lines += 1;
+                            _skipped_lines += 1;
                         }
                     }
                 }
@@ -196,22 +186,13 @@ impl JsonlParser {
                             e
                         );
                     }
-                    skipped_lines += 1;
+                    _skipped_lines += 1;
                 }
             }
         }
 
-        // Extract smart project name from cwd/originalCwd in messages
-        let smart_project_name = self.extract_smart_project_name(&messages);
-
         Ok(ParsedConversation {
-            project_path,
-            file_path: file_path.to_path_buf(),
             messages,
-            total_lines,
-            parsed_lines,
-            skipped_lines,
-            smart_project_name,
         })
     }
 
@@ -272,23 +253,6 @@ impl JsonlParser {
         usage_data
     }
 
-    /// Extract smart project name from cwd/originalCwd fields in messages
-    fn extract_smart_project_name(&self, messages: &[UsageData]) -> Option<String> {
-        // Try to find a message with cwd or originalCwd
-        for message in messages {
-            if let Some(ref cwd) = message.cwd {
-                if let Some(project_name) = self.extract_project_name_from_path(cwd) {
-                    return Some(project_name);
-                }
-            }
-            if let Some(ref original_cwd) = message.original_cwd {
-                if let Some(project_name) = self.extract_project_name_from_path(original_cwd) {
-                    return Some(project_name);
-                }
-            }
-        }
-        None
-    }
 
     /// Extract meaningful project name from a file path
     fn extract_project_name_from_path(&self, path: &str) -> Option<String> {
@@ -361,35 +325,6 @@ impl JsonlParser {
         Ok(())
     }
 
-    /// Parse all JSONL files in the base directory
-    pub fn parse_all_files(&self) -> Result<Vec<ParsedConversation>> {
-        self.parse_all_files_with_verbose(false)
-    }
-
-    /// Parse all JSONL files in the base directory with optional verbose output
-    pub fn parse_all_files_with_verbose(&self, verbose: bool) -> Result<Vec<ParsedConversation>> {
-        let files = self.find_jsonl_files()?;
-        let mut conversations = Vec::new();
-
-        for file_path in files {
-            match self.parse_file_with_verbose(&file_path, verbose) {
-                Ok(conversation) => {
-                    conversations.push(conversation);
-                }
-                Err(e) => {
-                    if verbose {
-                        eprintln!(
-                            "Warning: Failed to parse file {}: {}",
-                            file_path.display(),
-                            e
-                        );
-                    }
-                }
-            }
-        }
-
-        Ok(conversations)
-    }
 }
 
 impl Default for JsonlParser {
@@ -574,13 +509,8 @@ mod tests {
         let content = create_test_jsonl_content().join("\n");
         fs::write(&file_path, content).expect("Failed to write test file");
 
-        let result = parser.parse_file(&file_path).unwrap();
+        let result = parser.parse_file_with_verbose(&file_path, false).unwrap();
 
-        assert_eq!(result.project_path, PathBuf::from("project1"));
-        assert_eq!(result.file_path, file_path);
-        assert_eq!(result.parsed_lines, 5); // 5 valid entries including one without timestamp
-        assert_eq!(result.skipped_lines, 2); // 1 empty + 1 malformed + 1 empty timestamp
-        assert_eq!(result.total_lines, 8);
         assert_eq!(result.messages.len(), 5);
 
         // Verify first message
@@ -721,14 +651,11 @@ mod tests {
 
         // Measure performance
         let start = std::time::Instant::now();
-        let result = parser.parse_file(&file_path).unwrap();
+        let result = parser.parse_file_with_verbose(&file_path, false).unwrap();
         let duration = start.elapsed();
 
         // Assertions
         assert_eq!(result.messages.len(), 1000);
-        assert_eq!(result.parsed_lines, 1000);
-        assert_eq!(result.skipped_lines, 0);
-        assert_eq!(result.total_lines, 1000);
 
         // Performance assertion: should parse 1000 lines in less than 1 second
         assert!(
@@ -758,15 +685,10 @@ mod tests {
 
         fs::write(&file_path, content).expect("Failed to write realistic test file");
 
-        let result = parser.parse_file(&file_path).unwrap();
-
-        // Verify project extraction
-        assert_eq!(result.project_path, PathBuf::from("transcribr"));
+        let result = parser.parse_file_with_verbose(&file_path, false).unwrap();
 
         // Verify all messages parsed correctly
         assert_eq!(result.messages.len(), 4);
-        assert_eq!(result.parsed_lines, 4);
-        assert_eq!(result.skipped_lines, 0);
 
         // Verify specific message content
         let first_msg = &result.messages[0];

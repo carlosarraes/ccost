@@ -6,16 +6,7 @@ pub mod timeline;
 pub mod timezone;
 pub mod usage;
 
-// Re-export key types for easier access (some temporarily unused)
-#[allow(unused)]
-pub use conversations::{
-    ConversationAnalyzer, ConversationFilter, ConversationInsight, ConversationInsightList,
-    ConversationSortBy,
-};
-#[allow(unused)]
-pub use optimization::OptimizationEngine;
-#[allow(unused)]
-pub use projects::{ProjectAnalyzer, ProjectSortBy};
+// Re-export key types for easier access
 pub use timezone::TimezoneCalculator;
 pub use usage::{CostCalculationMode, UsageFilter, UsageTracker};
 
@@ -40,16 +31,8 @@ pub struct DailyUsage {
 pub struct DailyUsageList(pub Vec<DailyUsage>);
 
 impl OutputFormat for DailyUsageList {
-    fn to_table(&self) -> String {
-        self.to_table_with_currency_and_color("USD", 2, false)
-    }
-
     fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(&self.0)
-    }
-
-    fn to_table_with_currency(&self, currency: &str, decimal_places: u8) -> String {
-        self.to_table_with_currency_and_color(currency, decimal_places, false)
     }
 
     fn to_table_with_currency_and_color(
@@ -166,7 +149,7 @@ mod integration_tests {
             .map(|data| (data, "auto_test".to_string()))
             .collect();
         let usage_results = tracker_auto
-            .calculate_usage_with_projects(enhanced_data, &crate::models::PricingManager::new())
+            .calculate_usage_with_projects_filtered(enhanced_data, &crate::models::PricingManager::new(), &UsageFilter::default())
             .unwrap();
         let usage = &usage_results[0];
 
