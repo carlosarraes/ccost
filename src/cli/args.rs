@@ -177,7 +177,6 @@ pub enum Commands {
         action: PricingAction,
     },
 
-
     /// Conversation analysis
     Conversations {
         /// Sort conversations by criteria

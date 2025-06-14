@@ -128,7 +128,6 @@ impl JsonlParser {
         }
     }
 
-
     /// Parse a single JSONL file with optional verbose output
     pub fn parse_file_with_verbose(
         &self,
@@ -191,9 +190,7 @@ impl JsonlParser {
             }
         }
 
-        Ok(ParsedConversation {
-            messages,
-        })
+        Ok(ParsedConversation { messages })
     }
 
     /// Parse a single line of JSONL
@@ -252,7 +249,6 @@ impl JsonlParser {
 
         usage_data
     }
-
 
     /// Extract meaningful project name from a file path
     fn extract_project_name_from_path(&self, path: &str) -> Option<String> {
@@ -324,7 +320,6 @@ impl JsonlParser {
 
         Ok(())
     }
-
 }
 
 impl Default for JsonlParser {

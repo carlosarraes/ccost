@@ -149,7 +149,11 @@ mod integration_tests {
             .map(|data| (data, "auto_test".to_string()))
             .collect();
         let usage_results = tracker_auto
-            .calculate_usage_with_projects_filtered(enhanced_data, &crate::models::PricingManager::new(), &UsageFilter::default())
+            .calculate_usage_with_projects_filtered(
+                enhanced_data,
+                &crate::models::PricingManager::new(),
+                &UsageFilter::default(),
+            )
             .unwrap();
         let usage = &usage_results[0];
 

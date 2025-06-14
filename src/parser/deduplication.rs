@@ -93,7 +93,6 @@ impl DeduplicationEngine {
 
         Ok(unique_messages)
     }
-
 }
 
 #[derive(Default, Debug)]
@@ -334,7 +333,6 @@ mod tests {
         let engine2 = DeduplicationEngine::new();
         assert!(!engine2.is_duplicate(&message1));
     }
-
 
     #[test]
     fn test_performance_large_dataset() {
