@@ -32,7 +32,6 @@ impl DateFormat {
         }
     }
 
-
     /// Format a NaiveDate for table display
     pub fn format_naive_date(&self, date: &NaiveDate) -> String {
         date.format(self.to_chrono_format()).to_string()
@@ -61,7 +60,6 @@ impl DateFormatter {
         Ok(Self { table_format })
     }
 
-
     /// Format a DateTime with time for table output
     pub fn format_for_table_with_time(&self, datetime: &DateTime<Utc>) -> String {
         self.table_format.format_datetime_with_time(datetime)
@@ -77,7 +75,6 @@ impl DateFormatter {
         // JSON output always uses ISO format regardless of config
         date.format("%Y-%m-%d").to_string()
     }
-
 }
 
 #[cfg(test)]
@@ -117,8 +114,6 @@ mod tests {
         assert_eq!(DateFormat::MonthDayYear.to_chrono_format(), "%m-%d-%Y");
     }
 
-
-
     #[test]
     fn test_datetime_with_time_formatting() {
         let dt = Utc.with_ymd_and_hms(2024, 3, 15, 14, 30, 0).unwrap();
@@ -154,9 +149,4 @@ mod tests {
             "03-15-2024"
         );
     }
-
-
-
-
-
 }
