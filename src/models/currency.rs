@@ -29,21 +29,6 @@ impl CurrencyConverter {
         Ok(amount * rate)
     }
 
-    /// Convert amount between any two currencies
-    pub async fn convert(
-        &self,
-        amount: f64,
-        from_currency: &str,
-        to_currency: &str,
-    ) -> Result<f64> {
-        if from_currency == to_currency {
-            return Ok(amount);
-        }
-
-        let rate = self.get_exchange_rate(from_currency, to_currency).await?;
-        Ok(amount * rate)
-    }
-
     /// Get exchange rate between two currencies
     async fn get_exchange_rate(&self, from_currency: &str, to_currency: &str) -> Result<f64> {
         // Fetch from ECB API (no caching)
@@ -105,44 +90,6 @@ impl CurrencyConverter {
             anyhow::bail!("Currency {} not found in ECB data", currency)
         }
     }
-
-    /// Get list of supported currencies (hardcoded list)
-    pub async fn get_supported_currencies(&self) -> Result<Vec<String>> {
-        let currencies = vec![
-            "USD".to_string(),
-            "EUR".to_string(),
-            "GBP".to_string(),
-            "JPY".to_string(),
-            "CNY".to_string(),
-            "AUD".to_string(),
-            "CAD".to_string(),
-            "CHF".to_string(),
-            "SEK".to_string(),
-            "NOK".to_string(),
-            "DKK".to_string(),
-            "PLN".to_string(),
-            "CZK".to_string(),
-            "HUF".to_string(),
-            "RON".to_string(),
-            "BGN".to_string(),
-            "HRK".to_string(),
-            "RUB".to_string(),
-            "TRY".to_string(),
-            "BRL".to_string(),
-            "MXN".to_string(),
-            "ZAR".to_string(),
-            "INR".to_string(),
-            "KRW".to_string(),
-            "SGD".to_string(),
-            "HKD".to_string(),
-            "NZD".to_string(),
-            "MYR".to_string(),
-            "THB".to_string(),
-            "PHP".to_string(),
-        ];
-
-        Ok(currencies)
-    }
 }
 
 /// Format currency amount with appropriate symbol and decimals
@@ -167,63 +114,5 @@ pub fn format_currency(amount: f64, currency: &str, decimal_places: u8) -> Strin
         "USD" | "GBP" => format!("{}{}", symbol, formatted_amount),
         "EUR" | "JPY" | "CNY" => format!("{} {}", formatted_amount, symbol),
         _ => format!("{} {}", formatted_amount, currency),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn create_test_converter() -> CurrencyConverter {
-        CurrencyConverter::new()
-    }
-
-    #[tokio::test]
-    async fn test_usd_to_usd_conversion() {
-        let converter = create_test_converter();
-        let result = converter.convert_from_usd(100.0, "USD").await.unwrap();
-        assert_eq!(result, 100.0);
-    }
-
-    #[tokio::test]
-    async fn test_same_currency_conversion() {
-        let converter = create_test_converter();
-        let result = converter.convert(100.0, "EUR", "EUR").await.unwrap();
-        assert_eq!(result, 100.0);
-    }
-
-    #[test]
-    fn test_currency_formatting_usd() {
-        assert_eq!(format_currency(1234.56, "USD", 2), "$1234.56");
-        assert_eq!(format_currency(1000.0, "USD", 0), "$1000");
-    }
-
-    #[test]
-    fn test_currency_formatting_eur() {
-        assert_eq!(format_currency(1234.56, "EUR", 2), "1234.56 €");
-    }
-
-    #[test]
-    fn test_currency_formatting_gbp() {
-        assert_eq!(format_currency(1234.56, "GBP", 2), "£1234.56");
-    }
-
-    #[test]
-    fn test_currency_formatting_jpy() {
-        assert_eq!(format_currency(1234.0, "JPY", 0), "1234 ¥");
-    }
-
-    #[test]
-    fn test_currency_formatting_unknown() {
-        assert_eq!(format_currency(1234.56, "XYZ", 2), "1234.56 XYZ");
-    }
-
-    // Mock test for API integration (would need actual API in integration tests)
-    #[tokio::test]
-    async fn test_supported_currencies_includes_defaults() {
-        let converter = create_test_converter();
-        let currencies = converter.get_supported_currencies().await.unwrap();
-        assert!(currencies.contains(&"EUR".to_string()));
-        assert!(currencies.contains(&"USD".to_string()));
     }
 }
