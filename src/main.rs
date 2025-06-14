@@ -14,7 +14,6 @@ mod models;
 mod output;
 mod parser;
 mod utils;
-mod watch;
 
 // Import CLI types and commands
 use cli::args::{Cli, Commands};
@@ -22,7 +21,6 @@ use commands::config::handle_config_action;
 use commands::conversations::{handle_conversations_command, handle_optimize_command};
 use commands::projects::handle_projects_command;
 use commands::usage::handle_usage_command;
-use commands::watch::handle_watch_command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -145,20 +143,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Pricing { action: _ } => {
             // TODO: implement pricing command handler
             eprintln!("Pricing command not yet implemented");
-        }
-        Commands::Watch {
-            ref project,
-            threshold,
-            no_charts,
-            refresh_rate,
-        } => {
-            if let Err(e) =
-                handle_watch_command(project.clone(), threshold, no_charts, refresh_rate, &cli)
-                    .await
-            {
-                eprintln!("Error starting watch mode: {}", e);
-                std::process::exit(1);
-            }
         }
     }
     Ok(())
