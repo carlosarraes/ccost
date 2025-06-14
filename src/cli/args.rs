@@ -177,24 +177,6 @@ pub enum Commands {
         action: PricingAction,
     },
 
-    /// Real-time watch mode
-    Watch {
-        /// Filter by project name
-        #[arg(long)]
-        project: Option<String>,
-
-        /// Expensive conversation threshold in USD
-        #[arg(long, default_value = "5.0")]
-        threshold: f64,
-
-        /// Disable charts and graphs
-        #[arg(long)]
-        no_charts: bool,
-
-        /// Refresh rate in milliseconds
-        #[arg(long, default_value = "1000")]
-        refresh_rate: u64,
-    },
 
     /// Conversation analysis
     Conversations {
