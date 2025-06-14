@@ -12,7 +12,7 @@ impl CurrencyConverter {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
-            .user_agent("ccost/0.1.0")
+            .user_agent("ccost/0.1.1")
             .build()
             .expect("Failed to create HTTP client");
 
