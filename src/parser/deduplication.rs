@@ -124,7 +124,7 @@ mod tests {
     fn create_test_message(uuid: Option<String>, request_id: Option<String>) -> UsageData {
         // Generate a default message.id based on uuid for consistency
         let message_id = uuid.as_ref().map(|u| format!("msg_{}", u));
-        
+
         UsageData {
             timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid,
@@ -499,10 +499,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            hash1, hash2,
-            "Hash should be deterministic for same inputs"
-        );
+        assert_eq!(hash1, hash2, "Hash should be deterministic for same inputs");
 
         // Verify the format is simple concatenation
         assert_eq!(hash1, "msg-123:session-456");

@@ -9,8 +9,8 @@ use crate::output::OutputFormat;
 use crate::parser::deduplication::DeduplicationEngine;
 use crate::parser::jsonl::JsonlParser;
 use crate::utils::{
-    DateFormatter, EnhancedUsageData, apply_usage_filters, print_filter_info, resolve_filters,
-    maybe_hide_project_name,
+    DateFormatter, EnhancedUsageData, apply_usage_filters, maybe_hide_project_name,
+    print_filter_info, resolve_filters,
 };
 use chrono::Utc;
 use std::collections::HashMap;
