@@ -63,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
                 cli.json,
                 cli.verbose,
                 colored,
+                cli.hidden,
                 &config.timezone.timezone,
                 config.timezone.daily_cutoff_hour,
                 &config.output.date_format,
@@ -77,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
                 cli.json,
                 cli.verbose,
                 colored,
+                cli.hidden,
             )
             .await?;
         }
@@ -106,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
                 cli.json,
                 cli.verbose,
                 colored,
+                cli.hidden,
                 &config.timezone.timezone,
                 config.timezone.daily_cutoff_hour,
             )
@@ -132,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
                 cli.json,
                 cli.verbose,
                 colored,
+                cli.hidden,
                 &config.timezone.timezone,
                 config.timezone.daily_cutoff_hour,
             )
@@ -411,5 +415,20 @@ mod tests {
 
         let result = Cli::try_parse_from(["ccost", "usage", "--help"]);
         assert!(result.is_err()); // Help exits with error code but shouldn't panic
+    }
+
+    #[test]
+    fn test_hidden_flag() {
+        // Test long form
+        let cli = Cli::try_parse_from(["ccost", "--hidden", "usage", "today"]).unwrap();
+        assert!(cli.hidden);
+
+        // Test short form
+        let cli = Cli::try_parse_from(["ccost", "-d", "usage", "today"]).unwrap();
+        assert!(cli.hidden);
+
+        // Test default (false)
+        let cli = Cli::try_parse_from(["ccost", "usage", "today"]).unwrap();
+        assert!(!cli.hidden);
     }
 }

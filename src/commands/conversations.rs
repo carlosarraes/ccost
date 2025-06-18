@@ -15,6 +15,7 @@ pub async fn handle_conversations_command(
     #[allow(unused)] json_output: bool,
     #[allow(unused)] verbose: bool,
     #[allow(unused)] colored: bool,
+    #[allow(unused)] hidden: bool,
     #[allow(unused)] timezone_name: &str,
     #[allow(unused)] daily_cutoff_hour: u8,
 ) -> anyhow::Result<()> {
@@ -32,6 +33,7 @@ pub async fn handle_optimize_command(
     #[allow(unused)] json_output: bool,
     #[allow(unused)] verbose: bool,
     #[allow(unused)] colored: bool,
+    #[allow(unused)] hidden: bool,
     #[allow(unused)] timezone_name: &str,
     #[allow(unused)] daily_cutoff_hour: u8,
 ) -> anyhow::Result<()> {

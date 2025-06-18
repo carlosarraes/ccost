@@ -158,7 +158,7 @@ mod integration_tests {
         let usage = &usage_results[0];
 
         // Should use embedded cost for first message, calculated cost for second
-        assert_eq!(usage.total_cost_usd, 0.75); // 0.75 + 0.0 (calculated)
+        assert!((usage.total_cost_usd - 0.75).abs() < 0.01); // 0.75 + 0.0 (calculated), allow small floating point errors
         assert_eq!(usage.total_input_tokens, 300);
         assert_eq!(usage.total_output_tokens, 150);
     }

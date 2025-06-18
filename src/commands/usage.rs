@@ -10,6 +10,7 @@ use crate::parser::deduplication::DeduplicationEngine;
 use crate::parser::jsonl::JsonlParser;
 use crate::utils::{
     DateFormatter, EnhancedUsageData, apply_usage_filters, print_filter_info, resolve_filters,
+    maybe_hide_project_name,
 };
 use chrono::Utc;
 use std::collections::HashMap;
@@ -26,6 +27,7 @@ pub async fn handle_usage_command(
     json_output: bool,
     verbose: bool,
     colored: bool,
+    hidden: bool,
     timezone_name: &str,
     daily_cutoff_hour: u8,
     date_format: &str,
@@ -113,6 +115,7 @@ pub async fn handle_usage_command(
             json_output,
             verbose,
             colored,
+            hidden,
             timezone_name,
             daily_cutoff_hour,
             date_format,
@@ -184,12 +187,13 @@ pub async fn handle_usage_command(
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 // Use unified project name extraction for consistency
-                let project_name =
+                let raw_project_name =
                     parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                let project_name = maybe_hide_project_name(&raw_project_name, hidden);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = final_project {
-                    if project_name != *filter_project {
+                    if raw_project_name != *filter_project {
                         continue;
                     }
                 }
@@ -392,6 +396,7 @@ pub async fn handle_daily_usage_command(
     json_output: bool,
     verbose: bool,
     colored: bool,
+    hidden: bool,
     _timezone_name: &str,
     _daily_cutoff_hour: u8,
     date_format: &str,
@@ -494,12 +499,13 @@ pub async fn handle_daily_usage_command(
         match parser.parse_file_with_verbose(&file_path, verbose) {
             Ok(parsed_conversation) => {
                 // Use unified project name extraction for consistency
-                let project_name =
+                let raw_project_name =
                     parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                let project_name = maybe_hide_project_name(&raw_project_name, hidden);
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = project_filter {
-                    if project_name != *filter_project {
+                    if raw_project_name != *filter_project {
                         continue;
                     }
                 }

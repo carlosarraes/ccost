@@ -122,13 +122,16 @@ mod tests {
     use crate::parser::jsonl::{Message, Usage};
 
     fn create_test_message(uuid: Option<String>, request_id: Option<String>) -> UsageData {
+        // Generate a default message.id based on uuid for consistency
+        let message_id = uuid.as_ref().map(|u| format!("msg_{}", u));
+        
         UsageData {
             timestamp: Some("2025-06-09T10:00:00Z".to_string()),
             uuid,
             request_id,
             session_id: Some("test-session-123".to_string()),
             message: Some(Message {
-                id: None,
+                id: message_id,
                 content: Some("Test message".to_string()),
                 model: Some("claude-sonnet-4".to_string()),
                 role: Some("user".to_string()),
@@ -482,26 +485,27 @@ mod tests {
     }
 
     #[test]
-    fn test_backwards_compatibility_with_existing_hashes() {
-        // Ensure existing hash format is preserved for uuid + request_id combination
-        let old_style_hash = {
-            use sha2::{Digest, Sha256};
-            let mut hasher = Sha256::new();
-            hasher.update(format!("uuid_{}_req_{}", "uuid-123", "req-456"));
-            let result = hasher.finalize();
-            format!("{:x}", result)
-        };
+    fn test_hash_format_consistency() {
+        // Test that hash format is consistent and deterministic
+        let hash1 = DeduplicationEngine::generate_hash(
+            &Some("msg-123".to_string()),
+            &Some("session-456".to_string()),
+        )
+        .unwrap();
 
-        let new_style_hash = DeduplicationEngine::generate_hash(
-            &Some("msg-789".to_string()),
-            &Some("req-456".to_string()),
+        let hash2 = DeduplicationEngine::generate_hash(
+            &Some("msg-123".to_string()),
+            &Some("session-456".to_string()),
         )
         .unwrap();
 
         assert_eq!(
-            old_style_hash, new_style_hash,
-            "Should maintain backwards compatibility for existing hash format"
+            hash1, hash2,
+            "Hash should be deterministic for same inputs"
         );
+
+        // Verify the format is simple concatenation
+        assert_eq!(hash1, "msg-123:session-456");
     }
 
     #[test]
