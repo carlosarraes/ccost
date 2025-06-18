@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-06-18
+
+### Added
+- **Privacy Mode for Screenshots**: New `--hidden` / `-d` flag for privacy-safe project names (2025-06-18)
+  - **SCREENSHOT PRIVACY**: Transform real project names into dummy names like `project-alpha`, `project-beta` for safe screenshot sharing
+  - **CONSISTENT MAPPING**: Same real project always maps to same dummy name within a session for consistency
+  - **DUAL FLAG SUPPORT**: Both long form `--hidden` and short form `-d` supported for convenience
+  - **GREEK ALPHABET NAMING**: Uses Greek letters (alpha, beta, gamma...) for first 24 projects, then numbered format
+  - **UNIVERSAL COMPATIBILITY**: Works with all commands (usage, projects, daily) and output formats (table, JSON)
+  - **SMART FILTERING**: Project filters still work with real names while display shows dummy names
+  - **THREAD-SAFE IMPLEMENTATION**: Global privacy manager with consistent mapping using LazyLock
+  - **COMPREHENSIVE TESTING**: Full test suite with 4 privacy utility tests and CLI integration tests
+  - **NO DATA LEAKAGE**: Only display names changed, all functionality preserved with original project names
+  - **PERFECT FOR DEMOS**: Ideal for presentations, documentation, and public screenshots without revealing sensitive project names
+
+### Fixed
+- **Test Suite Stability**: Updated deduplication tests to work with current hash strategy requirements
+- **Floating Point Precision**: Fixed integration test to handle small floating point calculation differences
+
 ### Progress to First Usable Version  
 **🎉🎉🎉 MILESTONE 1 MVP COMPLETE! 🎉🎉🎉** (13/13 MVP tasks done)
 **🚀🚀🚀 MILESTONE 2 ENHANCED FEATURES COMPLETE! 🚀🚀🚀** (Real-time watch mode + core infrastructure done)

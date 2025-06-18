@@ -10,6 +10,7 @@ pub async fn handle_projects_command(
     json_output: bool,
     verbose: bool,
     colored: bool,
+    hidden: bool,
 ) -> anyhow::Result<()> {
     // TODO: Move implementation from main.rs
     Ok(())

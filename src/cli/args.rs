@@ -29,6 +29,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub colored: bool,
 
+    /// Use dummy project names for privacy in screenshots
+    #[arg(short = 'd', long, global = true)]
+    pub hidden: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
