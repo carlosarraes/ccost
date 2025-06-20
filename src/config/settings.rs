@@ -9,6 +9,7 @@ pub struct Config {
     pub currency: CurrencyConfig,
     pub output: OutputConfig,
     pub timezone: TimezoneConfig,
+    pub pricing: PricingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,13 @@ pub struct TimezoneConfig {
     pub daily_cutoff_hour: u8, // 0-23, hour when new day starts
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PricingConfig {
+    pub source: String,           // "static", "live", "auto"
+    pub cache_ttl_minutes: u32,   // Cache time-to-live in minutes
+    pub offline_fallback: bool,   // Whether to fallback to static pricing offline
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -55,6 +63,11 @@ impl Default for Config {
             timezone: TimezoneConfig {
                 timezone: "UTC".to_string(),
                 daily_cutoff_hour: 0,
+            },
+            pricing: PricingConfig {
+                source: "auto".to_string(),
+                cache_ttl_minutes: 60,
+                offline_fallback: true,
             },
         }
     }
@@ -232,6 +245,40 @@ impl Config {
         ));
         output.push('\n');
 
+        // Pricing settings
+        output.push_str(
+            "# =============================================================================\n",
+        );
+        output.push_str("# PRICING SETTINGS\n");
+        output.push_str(
+            "# =============================================================================\n",
+        );
+        output.push('\n');
+        output.push_str("[pricing]\n");
+        output.push_str("# Pricing data source for cost calculations:\n");
+        output.push_str("#   \"static\" - Use embedded pricing data (fast, may be outdated)\n");
+        output.push_str("#   \"live\"   - Always fetch latest pricing from LiteLLM GitHub repository\n");
+        output.push_str("#   \"auto\"   - Use live pricing with offline fallback (recommended)\n");
+        output.push_str("# Live pricing provides granular cache costs (creation vs read rates)\n");
+        output.push_str(&format!("source = \"{}\"\n", self.pricing.source));
+        output.push('\n');
+        output.push_str("# Cache duration for live pricing data (in minutes)\n");
+        output.push_str("# Default: 60 minutes (1 hour)\n");
+        output.push_str("# Reduces API calls while keeping pricing reasonably fresh\n");
+        output.push_str(&format!(
+            "cache_ttl_minutes = {}\n",
+            self.pricing.cache_ttl_minutes
+        ));
+        output.push('\n');
+        output.push_str("# Enable fallback to static pricing when offline or API unavailable\n");
+        output.push_str("# true  - Gracefully fallback to embedded pricing (recommended)\n");
+        output.push_str("# false - Fail if live pricing cannot be fetched\n");
+        output.push_str(&format!(
+            "offline_fallback = {}\n",
+            self.pricing.offline_fallback
+        ));
+        output.push('\n');
+
         // Final notes
         output.push_str(
             "# =============================================================================\n",
@@ -305,6 +352,28 @@ impl Config {
                     anyhow::bail!("Hour must be between 0 and 23");
                 }
                 self.timezone.daily_cutoff_hour = hour;
+            }
+            "pricing.source" => {
+                if !["static", "live", "auto"].contains(&value) {
+                    anyhow::bail!(
+                        "Invalid pricing source: {value}. Must be 'static', 'live', or 'auto'"
+                    );
+                }
+                self.pricing.source = value.to_string();
+            }
+            "pricing.cache_ttl_minutes" => {
+                let ttl: u32 = value
+                    .parse()
+                    .with_context(|| format!("Invalid cache TTL value: {value}"))?;
+                if ttl == 0 || ttl > 1440 {
+                    anyhow::bail!("Cache TTL must be between 1 and 1440 minutes (24 hours)");
+                }
+                self.pricing.cache_ttl_minutes = ttl;
+            }
+            "pricing.offline_fallback" => {
+                self.pricing.offline_fallback = value
+                    .parse()
+                    .with_context(|| format!("Invalid boolean value: {value}"))?;
             }
             _ => anyhow::bail!("Unknown configuration key: {key}"),
         }
