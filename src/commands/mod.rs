@@ -1,7 +1,5 @@
 // Command handlers module
 pub mod config;
-pub mod conversations;
-pub mod pricing;
 pub mod projects;
 pub mod usage;
 
@@ -9,9 +7,6 @@ pub mod usage;
 #[allow(unused)]
 pub use config::handle_config_action;
 #[allow(unused)]
-pub use conversations::{handle_conversations_command, handle_optimize_command};
-#[allow(unused)]
-pub use pricing::handle_pricing_command;
 #[allow(unused)]
 pub use projects::handle_projects_command;
 #[allow(unused)]
