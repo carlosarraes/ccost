@@ -19,7 +19,7 @@ pub async fn handle_this_month_command(
     date_format: &str,
 ) -> anyhow::Result<()> {
     // Initialize context
-    let mut context = match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format) {
+    let mut context = match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format).await {
         Ok(ctx) => ctx,
         Err(e) => {
             handle_error(&e, json_output);
@@ -69,18 +69,24 @@ pub async fn handle_this_month_command(
         .map(|enhanced| (enhanced.usage_data, enhanced.project_name))
         .collect();
 
-    // Calculate usage with the tracker
-    let project_usage = match context.usage_tracker.calculate_usage_with_projects_filtered(
+    // Calculate usage with enhanced pricing (supports live pricing)
+    let (project_usage, pricing_source) = match context.calculate_usage_enhanced(
         usage_tuples,
-        &context.pricing_manager,
         &usage_filter,
-    ) {
-        Ok(usage) => usage,
+    ).await {
+        Ok((usage, source)) => (usage, source),
         Err(e) => {
             handle_error(&e, json_output);
             return Err(e);
         }
     };
+
+    // Display pricing source in verbose mode
+    if verbose && !json_output {
+        if let Some(source) = &pricing_source {
+            println!("Pricing source: {}", source);
+        }
+    }
 
     // Apply remaining filters to the calculated usage
     let mut filtered_usage = apply_usage_filters(project_usage, &usage_filter);

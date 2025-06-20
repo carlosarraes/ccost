@@ -24,7 +24,7 @@ pub async fn handle_daily_command(
     date_format: &str,
 ) -> anyhow::Result<()> {
     // Initialize context
-    let mut context = match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format) {
+    let mut context = match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format).await {
         Ok(ctx) => ctx,
         Err(e) => {
             handle_error(&e, json_output);
