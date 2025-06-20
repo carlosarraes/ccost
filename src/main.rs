@@ -20,6 +20,8 @@ use cli::args::{Cli, Commands};
 use commands::config::handle_config_action;
 use commands::projects::handle_projects_command;
 use commands::usage::{handle_usage_command, UsageTimeframe};
+use commands::today::handle_today_command;
+use commands::yesterday::handle_yesterday_command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -45,9 +47,8 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Today { project }) => {
-            handle_usage_command(
-                Some(UsageTimeframe::Today),
-                project.or(cli.model.clone()),
+            handle_today_command(
+                project,
                 cli.since.clone(),
                 cli.until.clone(),
                 cli.model.clone(),
@@ -64,9 +65,8 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Some(Commands::Yesterday { project }) => {
-            handle_usage_command(
-                Some(UsageTimeframe::Yesterday),
-                project.or(cli.model.clone()),
+            handle_yesterday_command(
+                project,
                 cli.since.clone(),
                 cli.until.clone(),
                 cli.model.clone(),
