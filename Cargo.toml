@@ -3,6 +3,10 @@ name = "ccost"
 version = "0.2.0"
 edition = "2024"
 
+[[bin]]
+name = "ccost"
+path = "src/main.rs"
+
 [dependencies]
 # Core CLI framework
 clap = { version = "4.0", features = ["derive"] }
