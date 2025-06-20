@@ -12,16 +12,29 @@
 
 ## 🎯 What is ccost?
 
-ccost is a comprehensive Claude API usage tracking and cost analysis tool designed to provide accurate insights into your AI usage patterns. It features intelligent message deduplication to prevent inflated cost calculations when working with branched conversations.
+ccost is a comprehensive Claude API usage tracking and cost analysis tool designed to provide accurate insights into your AI usage patterns. It features intelligent message deduplication using requestId priority to ensure accurate cost calculations aligned with API billing.
 
 ### ✅ Key Features:
-- ✅ **Intelligent deduplication** using UUID+RequestID hashing to ensure accurate cost calculations
+- ✅ **Enhanced deduplication** using requestId priority with sessionId fallback for optimal billing accuracy
+- ✅ **Intuitive CLI** with direct commands (no nested subcommands)
 - ✅ **Multi-currency support** with live exchange rates (EUR, GBP, JPY, CNY, BRL, etc.)
-- ✅ **Model switching tracking** to monitor changes within conversations
+- ✅ **Project filtering** with comma-separated support for multiple projects
 - ✅ **SQLite caching** for offline operation and improved performance
 - ✅ **Timezone-aware** daily cutoffs and filtering
-- ✅ **Project-based analysis** to track usage across different work contexts
 - ✅ **Comprehensive filtering** by date ranges, models, and projects
+- ✅ **Privacy mode** with --hidden flag for sensitive project names
+
+## 📢 What's New in v0.2.0
+
+**🚨 BREAKING CHANGES**: ccost v0.2.0 introduces a simplified CLI with direct commands:
+
+- ✅ **Simplified Commands**: `ccost today` instead of `ccost usage today`
+- ✅ **Enhanced Projects**: `ccost projects proj1,proj2` for multiple project filtering
+- ✅ **Better Deduplication**: requestId priority for improved billing accuracy
+- ✅ **Privacy Mode**: `--hidden` flag for sensitive project names
+- ✅ **Default Overview**: `ccost` (no args) shows complete usage summary
+
+**Migration Guide**: Replace `ccost usage <timeframe>` with `ccost <timeframe>` and update project commands to use comma-separated filtering.
 
 ## 🚀 Quick Start
 
@@ -34,27 +47,30 @@ curl -sSf https://raw.githubusercontent.com/carlosarraes/ccost/main/install.sh |
 ### Basic Usage
 
 ```bash
+# View overall usage summary
+ccost
+
 # View today's usage
-ccost usage today
+ccost today
 
 # View this week's usage in EUR
-ccost usage this-week --currency EUR
+ccost this-week --currency EUR
 
-# Analyze projects by cost
-ccost projects cost
+# Analyze specific projects
+ccost projects project1,project2
 
 # View detailed daily breakdown
-ccost usage daily --days 7
+ccost daily --days 7
 ```
 
 ## 📊 Features
 
 ### 🔍 Usage Analysis
-- **Timeframe commands**: `today`, `yesterday`, `this-week`, `this-month`, `daily`
-- **Project filtering**: `--project myproject`
-- **Model filtering**: `--model claude-sonnet-4`
-- **Date ranges**: `--since 2025-01-01 --until 2025-01-31`
-- **Deduplication statistics**: See exactly how many duplicate messages were filtered
+- **Direct timeframe commands**: `today`, `yesterday`, `this-week`, `this-month`, `daily`
+- **Global filtering**: `--model claude-sonnet-4`, `--since 2025-01-01`, `--until 2025-01-31`
+- **Enhanced deduplication**: requestId priority with sessionId fallback for billing accuracy
+- **Privacy mode**: `--hidden` flag to obscure sensitive project names
+- **Verbose statistics**: See exactly how many duplicate messages were filtered
 
 ### 💰 Multi-Currency Support
 - **Real-time conversion** via European Central Bank API
@@ -63,10 +79,11 @@ ccost usage daily --days 7
 - **Proper formatting**: $12.34, €10.45, £8.99, ¥1,234
 
 ### 📈 Project Analysis
+- **Comma-separated filtering**: `ccost projects project1,project2,project3`
 - **Smart project detection** from file paths and `cwd` fields
-- **Sorting options**: by name, cost, or token usage
+- **Unified table output**: All requested projects in a single view
+- **Accurate totals**: Sum only the requested projects, not all projects
 - **Usage statistics**: total tokens, costs, and model distribution
-- **Project comparison**: identify your most active projects
 
 ### ⚙️ Configuration Management
 ```bash
@@ -84,41 +101,46 @@ ccost config set output.date_format "dd-mm-yyyy"
 
 ## 📋 Command Reference
 
-### Usage Commands
+### Overview & Basic Commands
 ```bash
-# Basic usage analysis
-ccost usage                           # Overall usage summary
-ccost usage today                     # Today's usage
-ccost usage yesterday                 # Yesterday's usage  
-ccost usage this-week                 # This week's usage
-ccost usage this-month                # This month's usage
-ccost usage daily                     # Daily breakdown (7 days)
-ccost usage daily --days 30           # Daily breakdown (30 days)
+# Overall usage summary (default behavior)
+ccost                                 # Show all projects with totals
 
-# With filters and options
-ccost usage today --project myproj    # Filter by project
-ccost usage today --model sonnet-4    # Filter by model
-ccost usage --since 2025-01-01        # Custom date range
-ccost usage --currency EUR            # Convert to EUR
-ccost usage --json                    # JSON output
-ccost usage --verbose                 # Detailed statistics
+# Direct timeframe commands (no nested subcommands)
+ccost today                           # Today's usage
+ccost yesterday                       # Yesterday's usage  
+ccost this-week                       # This week's usage
+ccost this-month                      # This month's usage
+ccost daily                           # Daily breakdown (7 days)
+ccost daily --days 30                 # Daily breakdown (30 days)
+```
+
+### Global Options (Available on All Commands)
+```bash
+# Filtering options
+--model claude-sonnet-4               # Filter by model
+--since 2025-01-01                    # Start date
+--until 2025-01-31                    # End date
+--currency EUR                        # Convert to specific currency
+--timezone "America/New_York"         # Override timezone
+
+# Output options
+--json                                # JSON output format
+--verbose                             # Detailed statistics
+--colored                             # Enable colored output
+--hidden                              # Privacy mode (dummy project names)
 ```
 
 ### Project Analysis
 ```bash
-ccost projects                        # List all projects
-ccost projects cost                   # Sort by cost (highest first)
-ccost projects tokens                 # Sort by token usage
-ccost projects name                   # Sort alphabetically
+# Project filtering and analysis
+ccost projects                        # Show all projects
+ccost projects myproject              # Show specific project
+ccost projects proj1,proj2,proj3      # Show multiple projects (comma-separated)
+ccost projects --hidden               # Show projects with privacy mode
 ```
 
-### Pricing Management
-```bash
-ccost pricing list                    # Show current model pricing
-ccost pricing set claude-4 12.0 36.0  # Set custom pricing (input/output per 1M tokens)
-```
-
-### Configuration
+### Configuration Management
 ```bash
 ccost config show                     # Display current configuration
 ccost config init                     # Create fresh config file
@@ -166,83 +188,88 @@ ccost supports all standard timezone identifiers:
 
 ## 🎨 Output Examples
 
-### Usage Summary
-```
- Project          Input Tokens   Output Tokens   Cache Creation   Cache Read      Messages   Total Cost 
-────────────────────────────────────────────────────────────────────────────────────────────────────────
- project1                1,565          17,311          817,314       6,153,529        258        $4.31 
- project2               23,159         395,272        5,536,364     108,290,250      1,409       $80.74 
- project3                    4              36           30,636               0          1        $0.12 
- project4               28,597          95,017        4,242,745      78,565,562      1,127       $34.64 
- project5                1,212         138,925        2,154,078      40,701,941        511       $22.38 
- project6                  349          26,853          444,059       2,689,493         69       $13.09 
- project7              259,865         358,885       23,235,487     417,878,538      5,343      $155.54 
- project8               54,976       1,176,918        8,527,443     270,777,448      3,233      $129.54 
-────────────────────────────────────────────────────────────────────────────────────────────────────────
- TOTAL                 369,727       2,209,217       45,987,126     925,289,761     11,951     $440.36
-```
-
 ### Today's Usage
+```bash
+$ ccost today --hidden
 ```
- Project        Input Tokens   Output Tokens   Cache Creation   Cache Read   Messages   Total Cost 
-───────────────────────────────────────────────────────────────────────────────────────────────────
- project1               13,713          26,680          920,900   31,156,134        423       $10.06 
- project2                    9               2            3,616       23,275          2        $0.01 
- project3                   24             631           32,955       86,832          4        $0.23 
- project4                    4               1           92,238            0          1        $0.03 
-───────────────────────────────────────────────────────────────────────────────────────────────────
- TOTAL                  13,750          27,314        1,049,709   31,266,241        430       $10.33
+```
+ Project           Input Tokens   Output Tokens   Cache Creation   Cache Read   Messages   Total Cost 
+──────────────────────────────────────────────────────────────────────────────────────────────────────
+ project-28                 245           1,244          482,261    4,481,930         63        $1.68 
+ project-36                 659           5,641          728,386    9,223,010        135        $4.34 
+ project-37                  53             402            9,277      146,087          9        $0.05 
+ project-rho                189           2,186          126,856      883,775         26        $0.41 
+ project-upsilon          2,304         165,573        1,053,202   23,954,993        349       $12.53 
+ project-34               1,949         122,381          724,054   28,828,721        413       $10.86 
+──────────────────────────────────────────────────────────────────────────────────────────────────────
+ TOTAL                    5,399         297,427        3,124,036   67,518,516        995       $29.87
 ```
 
-### Daily Breakdown (Last 7 Days)
+### Specific Projects Analysis
+```bash
+$ ccost projects project-upsilon,project-rho --hidden
+```
+```
+ Project         Input Tokens   Output Tokens   Cache Creation   Cache Read    Messages   Total Cost 
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+ project-34             6,308         608,841        5,144,311   106,512,695      1,630       $43.98 
+ project-kappa         96,107       1,924,201       20,103,406   606,072,529      7,453      $434.98 
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+ TOTAL                102,415       2,533,042       25,247,717   712,585,224      9,083      $478.97
+```
+
+### Daily Breakdown (Last 3 Days)
+```bash
+$ ccost daily --days 3 --hidden
+```
 ```
  Date         Input Tokens   Output Tokens   Cache Creation   Cache Read    Messages   Projects   Total Cost 
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
- 2025-06-07         12,718         180,396        9,848,514   162,746,099      2,290          5       $61.31 
- 2025-06-08          4,350         100,533        5,214,948    58,807,114        983          4       $31.43 
- 2025-06-09         45,010         166,494        7,060,570   162,008,012      1,971          3       $63.60 
- 2025-06-10         31,231          48,010        3,502,083    88,633,343      1,030          4       $33.49 
- 2025-06-11        178,045         173,676        7,799,069   178,055,996      2,271          5       $64.29 
- 2025-06-12         45,106          72,329        9,296,709    89,519,256      1,187          1       $30.87 
- 2025-06-13         13,750          27,314        1,049,709    31,266,241        430          4       $10.33 
+ 2025-06-18         15,765         113,883        4,130,141    47,699,240        763          8       $27.10 
+ 2025-06-19         11,543         820,279        7,460,526   131,888,399      2,081          5       $57.77 
+ 2025-06-20          5,417         297,492        3,125,423    67,774,610        998          6       $29.95 
 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
- TOTAL             330,210         768,752       43,771,602   771,036,061     10,162         26      $295.31
+ TOTAL              32,725       1,231,654       14,716,090   247,362,249      3,842         19      $114.81
 ```
 
 ## 🏗️ Architecture
 
-ccost is built with a robust, modular architecture:
+ccost v0.2.0 is built with a robust, modular architecture:
 
 - **Parser Module**: JSONL parsing with full Claude data structure support
-- **Deduplication Engine**: SHA256-based message deduplication using UUID+RequestID
+- **Enhanced Deduplication Engine**: requestId priority with sessionId fallback for billing accuracy
 - **Database Layer**: SQLite with WAL mode for persistence and caching
 - **Currency Manager**: ECB API integration with automatic caching
 - **Analysis Engine**: Usage tracking, project analysis, and cost calculation
-- **CLI Framework**: Comprehensive command structure with clap
+- **Simplified CLI Framework**: Direct command structure without nested subcommands
 
 ### Data Flow
 1. **Parse** JSONL files from `~/.claude/projects/`
-2. **Deduplicate** messages using intelligent hash fallback strategy
-3. **Analyze** usage patterns and calculate costs
-4. **Cache** results in SQLite for performance
-5. **Display** results with professional formatting
+2. **Deduplicate** messages using requestId priority strategy
+3. **Filter** projects with comma-separated support
+4. **Analyze** usage patterns and calculate costs
+5. **Cache** results in SQLite for performance
+6. **Display** results with professional formatting and privacy mode
 
-## 🔍 Deduplication Strategy
+## 🔍 Enhanced Deduplication Strategy (v0.2.0)
 
-ccost uses a sophisticated multi-tier fallback strategy for message deduplication:
+ccost now uses a billing-aligned deduplication strategy optimized for API accuracy:
 
-1. **Priority 1**: `uuid + request_id` (most reliable when both available)
-2. **Priority 2**: `uuid + message.id` (common when request_id is null)  
-3. **Priority 3**: `message.id` only (last resort for messages without uuid)
-4. **Priority 4**: `uuid` only (legacy support)
+1. **Priority 1**: `message.id + requestId` (optimal for API billing alignment)
+2. **Priority 2**: `message.id + sessionId` (fallback when requestId unavailable)
+3. **No Hash Generation**: Messages without both message.id and identifier are excluded
 
-This ensures maximum accuracy while maintaining compatibility with all Claude data formats.
+This strategy provides:
+- **Better billing accuracy** aligned with Claude API billing practices
+- **Improved deduplication rates** (target ~18% vs previous ~12%)
+- **Simplified logic** without complex multi-tier fallbacks
+- **Hash collision prevention** with "req:" and "session:" prefixes
 
 ### Deduplication Statistics
-ccost provides detailed deduplication reporting:
+ccost provides detailed deduplication reporting with `--verbose`:
 - **Total messages found**: Raw count from JSONL files
 - **Duplicates removed**: Number of duplicate messages filtered
-- **Deduplication rate**: Percentage of duplicates (typically 12-18%)
+- **Deduplication rate**: Percentage of duplicates (improved ~18% target)
 - **Unique messages**: Final count used for cost calculation
 
 ## 🚀 Installation Options
