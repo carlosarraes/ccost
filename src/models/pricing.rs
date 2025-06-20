@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::models::litellm::{LiteLLMClient, EnhancedModelPricing, PricingSource};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPricing {
@@ -38,6 +39,8 @@ impl ModelPricing {
 #[derive(Debug)]
 pub struct PricingManager {
     pricing_data: HashMap<String, ModelPricing>,
+    litellm_client: Option<LiteLLMClient>,
+    enable_live_pricing: bool,
 }
 
 impl PricingManager {
@@ -59,7 +62,56 @@ impl PricingManager {
             ModelPricing::new(1.0, 5.0, 0.1),
         );
 
-        Self { pricing_data }
+        Self { 
+            pricing_data,
+            litellm_client: None,
+            enable_live_pricing: false,
+        }
+    }
+
+    /// Create new pricing manager with LiteLLM integration enabled
+    pub fn with_live_pricing() -> Self {
+        let mut manager = Self::new();
+        manager.litellm_client = Some(LiteLLMClient::new());
+        manager.enable_live_pricing = true;
+        manager
+    }
+
+    /// Pre-fetch and cache pricing data to avoid delays during calculations
+    /// Only fetches if explicitly using live pricing mode
+    pub async fn initialize_live_pricing(&mut self) -> Result<(), anyhow::Error> {
+        // Only fetch if live pricing is explicitly enabled
+        // Default behavior should be fast offline mode
+        if self.enable_live_pricing {
+            if let Some(ref mut client) = self.litellm_client {
+                // Try to fetch with short timeout to avoid delays
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    client.fetch_pricing_data()
+                ).await {
+                    Ok(Ok(_)) => {
+                        // Successfully fetched live data
+                    },
+                    Ok(Err(e)) => {
+                        eprintln!("Warning: Failed to fetch live pricing, using static: {}", e);
+                        self.enable_live_pricing = false; // Fall back to static
+                    },
+                    Err(_) => {
+                        eprintln!("Warning: Live pricing fetch timed out, using static pricing");
+                        self.enable_live_pricing = false; // Fall back to static
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Enable or disable live pricing
+    pub fn set_live_pricing(&mut self, enabled: bool) {
+        self.enable_live_pricing = enabled;
+        if enabled && self.litellm_client.is_none() {
+            self.litellm_client = Some(LiteLLMClient::new());
+        }
     }
 
     /// Get pricing for a specific model
@@ -91,6 +143,67 @@ impl PricingManager {
             cache_creation_tokens,
             cache_read_tokens,
         )
+    }
+
+    /// Get enhanced pricing with live LiteLLM data if available
+    pub async fn get_enhanced_pricing(&mut self, model_name: &str) -> EnhancedModelPricing {
+        if self.enable_live_pricing {
+            if let Some(ref mut client) = self.litellm_client {
+                return client.get_pricing_with_fallback(model_name).await;
+            }
+        }
+
+        // Fallback to static pricing
+        let static_pricing = self.get_pricing_with_fallback(model_name);
+        EnhancedModelPricing::new(
+            static_pricing.input_cost_per_mtok,
+            static_pricing.output_cost_per_mtok,
+            static_pricing.cache_cost_per_mtok, // Use same rate for both creation and read
+            static_pricing.cache_cost_per_mtok,
+            PricingSource::StaticFallback,
+        )
+    }
+
+    /// Calculate cost using enhanced pricing model
+    pub async fn calculate_enhanced_cost(
+        &mut self,
+        model_name: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_tokens: u64,
+        cache_read_tokens: u64,
+    ) -> (f64, PricingSource) {
+        let pricing = self.get_enhanced_pricing(model_name).await;
+        let cost = pricing.calculate_cost(
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+        );
+        (cost, pricing.source)
+    }
+
+    /// Check if live pricing is enabled and available
+    pub fn is_live_pricing_enabled(&self) -> bool {
+        self.enable_live_pricing && self.litellm_client.is_some()
+    }
+
+    /// Get pricing source information
+    pub fn get_pricing_source_info(&self) -> String {
+        if self.is_live_pricing_enabled() {
+            if let Some(ref client) = self.litellm_client {
+                if client.has_fresh_cache() {
+                    format!("Live (cached {}s ago)", 
+                        client.cache_age_seconds().unwrap_or(0))
+                } else {
+                    "Live (will fetch fresh data)".to_string()
+                }
+            } else {
+                "Static fallback".to_string()
+            }
+        } else {
+            "Static".to_string()
+        }
     }
 }
 
@@ -227,6 +340,58 @@ mod tests {
         let cost =
             manager.calculate_cost_for_model("some-unknown-model", 1_000_000, 1_000_000, 0, 0);
         let expected = 3.0 + 15.0; // Should use fallback pricing (Sonnet rates)
+        assert!(
+            (cost - expected).abs() < 0.001,
+            "Expected {}, got {}",
+            expected,
+            cost
+        );
+    }
+
+    #[test]
+    fn test_pricing_manager_with_live_pricing() {
+        let manager = PricingManager::with_live_pricing();
+        assert!(manager.is_live_pricing_enabled());
+        assert_eq!(manager.get_pricing_source_info(), "Live (will fetch fresh data)");
+    }
+
+    #[test]
+    fn test_pricing_manager_set_live_pricing() {
+        let mut manager = PricingManager::new();
+        assert!(!manager.is_live_pricing_enabled());
+        
+        manager.set_live_pricing(true);
+        assert!(manager.is_live_pricing_enabled());
+        
+        manager.set_live_pricing(false);
+        assert!(!manager.is_live_pricing_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_enhanced_pricing_fallback() {
+        let mut manager = PricingManager::new();
+        
+        // Without live pricing, should use static fallback
+        let pricing = manager.get_enhanced_pricing("claude-sonnet-4-20250514").await;
+        assert_eq!(pricing.source, PricingSource::StaticFallback);
+        assert_eq!(pricing.input_cost_per_mtok, 3.0);
+        assert_eq!(pricing.output_cost_per_mtok, 15.0);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_enhanced_cost() {
+        let mut manager = PricingManager::new();
+        
+        let (cost, source) = manager.calculate_enhanced_cost(
+            "claude-sonnet-4-20250514", 
+            1_000_000, 
+            1_000_000, 
+            0, 
+            0
+        ).await;
+        
+        assert_eq!(source, PricingSource::StaticFallback);
+        let expected = 3.0 + 15.0; // 18.0
         assert!(
             (cost - expected).abs() < 0.001,
             "Expected {}, got {}",
