@@ -1,7 +1,6 @@
 use crate::analysis::{
     CostCalculationMode, DailyUsage, DailyUsageList, TimezoneCalculator, UsageFilter, UsageTracker,
 };
-use crate::cli::args::UsageTimeframe;
 use crate::config::Config;
 use crate::models::PricingManager;
 use crate::models::currency::CurrencyConverter;
@@ -16,7 +15,14 @@ use chrono::Utc;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub async fn handle_usage_command(
+#[derive(Debug, Clone)]
+pub enum UsageTimeframe {
+    Today,
+    Yesterday,
+    ThisWeek,
+    ThisMonth,
+    Daily { days: u32 },
+}pub async fn handle_usage_command(
     timeframe: Option<UsageTimeframe>,
     project: Option<String>,
     since: Option<String>,
@@ -38,11 +44,10 @@ pub async fn handle_usage_command(
         Err(e) => {
             if json_output {
                 println!(
-                    r#"{{"status": "error", "message": "Invalid timezone configuration: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Invalid timezone configuration: {e}"}}"#
                 );
             } else {
-                eprintln!("Error: Invalid timezone configuration: {}", e);
+                eprintln!("Error: Invalid timezone configuration: {e}");
             }
             std::process::exit(1);
         }
@@ -54,11 +59,10 @@ pub async fn handle_usage_command(
         Err(e) => {
             if json_output {
                 println!(
-                    r#"{{"status": "error", "message": "Invalid date format configuration: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Invalid date format configuration: {e}"}}"#
                 );
             } else {
-                eprintln!("Error: Invalid date format configuration: {}", e);
+                eprintln!("Error: Invalid date format configuration: {e}");
             }
             std::process::exit(1);
         }
@@ -101,15 +105,13 @@ pub async fn handle_usage_command(
 
     // Check if this is a daily command - requires special handling
     if let Some(UsageTimeframe::Daily {
-        project: daily_project,
-        model: daily_model,
         days,
     }) = &timeframe
     {
         handle_daily_usage_command(
             *days,
-            daily_project.clone().or(project),
-            daily_model.clone().or(model),
+            project,
+            model,
             target_currency,
             decimal_places,
             json_output,
@@ -149,11 +151,10 @@ pub async fn handle_usage_command(
         Err(e) => {
             if json_output {
                 println!(
-                    r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#
                 );
             } else {
-                eprintln!("Error: Failed to find JSONL files: {}", e);
+                eprintln!("Error: Failed to find JSONL files: {e}");
                 eprintln!(
                     "Make sure you have Claude conversations in: {}",
                     projects_dir.display()
@@ -192,11 +193,10 @@ pub async fn handle_usage_command(
                 let project_name = maybe_hide_project_name(&raw_project_name, hidden);
 
                 // Apply project filter if specified
-                if let Some(ref filter_project) = final_project {
-                    if raw_project_name != *filter_project {
+                if let Some(ref filter_project) = final_project
+                    && raw_project_name != *filter_project {
                         continue;
                     }
-                }
                 total_messages += parsed_conversation.messages.len();
 
                 // Apply deduplication
@@ -258,8 +258,7 @@ pub async fn handle_usage_command(
 
     if verbose && !json_output {
         println!(
-            "Processed {} files, {} total messages, {} unique messages",
-            files_processed, total_messages, unique_messages
+            "Processed {files_processed} files, {total_messages} total messages, {unique_messages} unique messages"
         );
     }
 
@@ -290,11 +289,10 @@ pub async fn handle_usage_command(
         Err(e) => {
             if json_output {
                 println!(
-                    r#"{{"status": "error", "message": "Failed to calculate usage: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Failed to calculate usage: {e}"}}"#
                 );
             } else {
-                eprintln!("Error: Failed to calculate usage: {}", e);
+                eprintln!("Error: Failed to calculate usage: {e}");
             }
             std::process::exit(1);
         }
@@ -365,11 +363,10 @@ pub async fn handle_usage_command(
     // Display results
     if json_output {
         match filtered_usage.to_json() {
-            Ok(json) => println!("{}", json),
+            Ok(json) => println!("{json}"),
             Err(e) => {
                 println!(
-                    r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#
                 );
                 std::process::exit(1);
             }
@@ -407,11 +404,10 @@ pub async fn handle_daily_usage_command(
         Err(e) => {
             if json_output {
                 println!(
-                    r#"{{"status": "error", "message": "Invalid date format configuration: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Invalid date format configuration: {e}"}}"#
                 );
             } else {
-                eprintln!("Error: Invalid date format configuration: {}", e);
+                eprintln!("Error: Invalid date format configuration: {e}");
             }
             std::process::exit(1);
         }
@@ -461,11 +457,10 @@ pub async fn handle_daily_usage_command(
         Err(e) => {
             if json_output {
                 println!(
-                    r#"{{"status": "error", "message": "Failed to find JSONL files: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#
                 );
             } else {
-                eprintln!("Error: Failed to find JSONL files: {}", e);
+                eprintln!("Error: Failed to find JSONL files: {e}");
                 eprintln!(
                     "Make sure you have Claude conversations in: {}",
                     projects_dir.display()
@@ -504,11 +499,10 @@ pub async fn handle_daily_usage_command(
                 let project_name = maybe_hide_project_name(&raw_project_name, hidden);
 
                 // Apply project filter if specified
-                if let Some(ref filter_project) = project_filter {
-                    if raw_project_name != *filter_project {
+                if let Some(ref filter_project) = project_filter
+                    && raw_project_name != *filter_project {
                         continue;
                     }
-                }
                 total_messages += parsed_conversation.messages.len();
 
                 // Apply deduplication
@@ -569,8 +563,7 @@ pub async fn handle_daily_usage_command(
 
     if verbose && !json_output {
         println!(
-            "Processed {} files, {} total messages, {} unique messages",
-            files_processed, total_messages, unique_messages
+            "Processed {files_processed} files, {total_messages} total messages, {unique_messages} unique messages"
         );
     }
 
@@ -604,11 +597,10 @@ pub async fn handle_daily_usage_command(
             .and_then(|m| m.model.clone())
             .unwrap_or_else(|| "unknown".to_string());
 
-        if let Some(ref filter_model) = model_filter {
-            if model_name != *filter_model {
+        if let Some(ref filter_model) = model_filter
+            && model_name != *filter_model {
                 continue;
             }
-        }
 
         // Parse timestamp and extract date
         let date_key = if let Some(timestamp_str) = &message.timestamp {
@@ -686,8 +678,8 @@ pub async fn handle_daily_usage_command(
     let mut project_sets_by_day: HashMap<String, std::collections::HashSet<String>> =
         HashMap::new();
     for enhanced in all_usage_data.iter() {
-        if let Some(timestamp_str) = &enhanced.usage_data.timestamp {
-            if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
+        if let Some(timestamp_str) = &enhanced.usage_data.timestamp
+            && let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
                 let date_key = if json_output {
                     date_formatter.format_naive_date_for_json(&message_time.date_naive())
                 } else {
@@ -696,11 +688,10 @@ pub async fn handle_daily_usage_command(
                 if daily_usage_map.contains_key(&date_key) {
                     project_sets_by_day
                         .entry(date_key)
-                        .or_insert_with(std::collections::HashSet::new)
+                        .or_default()
                         .insert(enhanced.project_name.clone());
                 }
             }
-        }
     }
 
     // Update projects count
@@ -764,11 +755,10 @@ pub async fn handle_daily_usage_command(
     // Display results
     if json_output {
         match daily_usage_list.to_json() {
-            Ok(json) => println!("{}", json),
+            Ok(json) => println!("{json}"),
             Err(e) => {
                 println!(
-                    r#"{{"status": "error", "message": "Failed to serialize results: {}"}}"#,
-                    e
+                    r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#
                 );
                 std::process::exit(1);
             }

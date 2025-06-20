@@ -1,5 +1,5 @@
 use crate::analysis::UsageFilter;
-use crate::cli::args::UsageTimeframe;
+use crate::commands::usage::UsageTimeframe;
 use crate::utils::DateFormatter;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 
@@ -10,6 +10,14 @@ pub struct EnhancedUsageData {
     pub project_name: String,
 }
 
+/// Type alias for complex filter resolution result
+pub type ResolvedFilters = (
+    Option<String>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<String>,
+);
+
 /// Resolves timeframe and explicit filters into final filter values
 pub fn resolve_filters(
     timeframe: Option<UsageTimeframe>,
@@ -18,68 +26,46 @@ pub fn resolve_filters(
     until: Option<String>,
     model: Option<String>,
     timezone_calc: &crate::analysis::TimezoneCalculator,
-) -> (
-    Option<String>,
-    Option<DateTime<Utc>>,
-    Option<DateTime<Utc>>,
-    Option<String>,
-) {
-    let (tf_project, tf_model, tf_since, tf_until) = match timeframe {
-        Some(UsageTimeframe::Today {
-            project: tf_project,
-            model: tf_model,
-        }) => {
+) -> ResolvedFilters {
+    let (tf_since, tf_until) = match timeframe {
+        Some(UsageTimeframe::Today) => {
             let start = timezone_calc.today_start();
             let end = timezone_calc.today_end();
-            (tf_project, tf_model, Some(start), Some(end))
+            (Some(start), Some(end))
         }
-        Some(UsageTimeframe::Yesterday {
-            project: tf_project,
-            model: tf_model,
-        }) => {
+        Some(UsageTimeframe::Yesterday) => {
             let start = timezone_calc.yesterday_start();
             let end = timezone_calc.yesterday_end();
-            (tf_project, tf_model, Some(start), Some(end))
+            (Some(start), Some(end))
         }
-        Some(UsageTimeframe::ThisWeek {
-            project: tf_project,
-            model: tf_model,
-        }) => {
+        Some(UsageTimeframe::ThisWeek) => {
             let start = timezone_calc.this_week_start();
-            (tf_project, tf_model, Some(start), None)
+            (Some(start), None)
         }
-        Some(UsageTimeframe::ThisMonth {
-            project: tf_project,
-            model: tf_model,
-        }) => {
+        Some(UsageTimeframe::ThisMonth) => {
             let start = timezone_calc.this_month_start();
-            (tf_project, tf_model, Some(start), None)
+            (Some(start), None)
         }
-        Some(UsageTimeframe::Daily {
-            project: tf_project,
-            model: tf_model,
-            days,
-        }) => {
+        Some(UsageTimeframe::Daily { days }) => {
             let today = Utc::now().date_naive();
             let days_ago = today - chrono::Duration::days(days as i64 - 1); // Include today
             let start = match days_ago.and_hms_opt(0, 0, 0) {
                 Some(naive_dt) => Utc.from_utc_datetime(&naive_dt),
                 None => {
                     eprintln!(
-                        "Warning: Failed to create start datetime for {} days ago",
-                        days
+                        "Warning: Failed to create start datetime for {days} days ago"
                     );
                     Utc::now() // Fallback to current time
                 }
             };
-            (tf_project, tf_model, Some(start), None)
+            (Some(start), None)
         }
-        None => (None, None, None, None),
+        None => (None, None),
     };
 
-    // Merge timeframe filters with explicit filters
-    let final_project = tf_project.or(project);
-    let final_model = tf_model.or(model);
+    // Use explicit filters directly (no timeframe filters to merge)
+    let final_project = project;
+    let final_model = model;
 
     // Parse explicit date filters
     let final_since = tf_since.or_else(|| {
@@ -115,10 +101,10 @@ pub fn print_filter_info(filter: &UsageFilter, json_output: bool, date_formatter
 
     println!("Filters applied:");
     if let Some(ref project) = filter.project_name {
-        println!("  Project: {}", project);
+        println!("  Project: {project}");
     }
     if let Some(ref model) = filter.model_name {
-        println!("  Model: {}", model);
+        println!("  Model: {model}");
     }
     if let Some(ref since) = filter.since {
         println!(

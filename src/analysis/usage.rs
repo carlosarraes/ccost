@@ -33,6 +33,7 @@ pub struct ModelUsage {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub struct UsageFilter {
     pub project_name: Option<String>,
     pub model_name: Option<String>,
@@ -83,20 +84,18 @@ impl UsageTracker {
 
         for (message, project_name) in enhanced_data {
             // Apply timestamp filtering
-            if let (Some(since), Some(timestamp_str)) = (&filter.since, &message.timestamp) {
-                if let Ok(message_time) = self.parse_timestamp(timestamp_str) {
-                    if message_time < *since {
-                        continue;
-                    }
-                }
+            if let (Some(since), Some(timestamp_str)) = (&filter.since, &message.timestamp)
+                && let Ok(message_time) = self.parse_timestamp(timestamp_str)
+                && message_time < *since
+            {
+                continue;
             }
 
-            if let (Some(until), Some(timestamp_str)) = (&filter.until, &message.timestamp) {
-                if let Ok(message_time) = self.parse_timestamp(timestamp_str) {
-                    if message_time > *until {
-                        continue;
-                    }
-                }
+            if let (Some(until), Some(timestamp_str)) = (&filter.until, &message.timestamp)
+                && let Ok(message_time) = self.parse_timestamp(timestamp_str)
+                && message_time > *until
+            {
+                continue;
             }
 
             // Skip messages without usage data
@@ -188,20 +187,10 @@ impl UsageTracker {
                 DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S%.f%z")
                     .map(|dt| dt.with_timezone(&Utc))
             })
-            .with_context(|| format!("Failed to parse timestamp: {}", timestamp))
+            .with_context(|| format!("Failed to parse timestamp: {timestamp}"))
     }
 }
 
-impl Default for UsageFilter {
-    fn default() -> Self {
-        Self {
-            project_name: None,
-            model_name: None,
-            since: None,
-            until: None,
-        }
-    }
-}
 
 impl Default for ProjectUsage {
     fn default() -> Self {
