@@ -19,9 +19,12 @@ mod utils;
 use cli::args::{Cli, Commands};
 use commands::config::handle_config_action;
 use commands::projects::handle_projects_command;
-use commands::usage::{handle_usage_command, UsageTimeframe};
+use commands::usage::handle_usage_command;
 use commands::today::handle_today_command;
 use commands::yesterday::handle_yesterday_command;
+use commands::this_week::handle_this_week_command;
+use commands::this_month::handle_this_month_command;
+use commands::daily::handle_daily_command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -83,9 +86,8 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Some(Commands::ThisWeek { project }) => {
-            handle_usage_command(
-                Some(UsageTimeframe::ThisWeek),
-                project.or(cli.model.clone()),
+            handle_this_week_command(
+                project,
                 cli.since.clone(),
                 cli.until.clone(),
                 cli.model.clone(),
@@ -102,9 +104,8 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Some(Commands::ThisMonth { project }) => {
-            handle_usage_command(
-                Some(UsageTimeframe::ThisMonth),
-                project.or(cli.model.clone()),
+            handle_this_month_command(
+                project,
                 cli.since.clone(),
                 cli.until.clone(),
                 cli.model.clone(),
@@ -121,9 +122,9 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Some(Commands::Daily { project, days }) => {
-            handle_usage_command(
-                Some(UsageTimeframe::Daily { days }),
-                project.or(cli.model.clone()),
+            handle_daily_command(
+                days,
+                project,
                 cli.since.clone(),
                 cli.until.clone(),
                 cli.model.clone(),

@@ -7,3 +7,6 @@ pub mod usage;
 pub mod timeframe_utils;
 pub mod today;
 pub mod yesterday;
+pub mod this_week;
+pub mod this_month;
+pub mod daily;
