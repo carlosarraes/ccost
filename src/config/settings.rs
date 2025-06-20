@@ -108,7 +108,7 @@ impl Config {
         output.push_str(
             "# All settings have sensible defaults and can be overridden via CLI flags.\n",
         );
-        output.push_str("\n");
+        output.push('\n');
 
         // General settings
         output.push_str(
@@ -118,7 +118,7 @@ impl Config {
         output.push_str(
             "# =============================================================================\n",
         );
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("[general]\n");
         output.push_str(
             "# Path to Claude projects directory (where JSONL conversation files are stored)\n",
@@ -129,7 +129,7 @@ impl Config {
             "claude_projects_path = \"{}\"\n",
             self.general.claude_projects_path
         ));
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("# Cost calculation mode - controls how costs are determined:\n");
         output.push_str("#   \"auto\"      - Use embedded costUSD if available, calculate if missing (recommended)\n");
         output.push_str("#   \"calculate\" - Always calculate cost from tokens × pricing (ignores embedded costs)\n");
@@ -138,7 +138,7 @@ impl Config {
             "# Most users should use \"auto\" which provides the most accurate results\n",
         );
         output.push_str(&format!("cost_mode = \"{}\"\n", self.general.cost_mode));
-        output.push_str("\n");
+        output.push('\n');
 
         // Currency settings
         output.push_str(
@@ -148,7 +148,7 @@ impl Config {
         output.push_str(
             "# =============================================================================\n",
         );
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("[currency]\n");
         output.push_str("# Default currency for displaying costs\n");
         output.push_str(
@@ -160,7 +160,7 @@ impl Config {
             "default_currency = \"{}\"\n",
             self.currency.default_currency
         ));
-        output.push_str("\n");
+        output.push('\n');
 
         // Output settings
         output.push_str(
@@ -170,20 +170,20 @@ impl Config {
         output.push_str(
             "# =============================================================================\n",
         );
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("[output]\n");
         output.push_str("# Default output format:\n");
         output.push_str("#   \"table\" - Human-readable tables (recommended for terminal use)\n");
         output.push_str("#   \"json\"  - Machine-readable JSON (good for scripting)\n");
         output.push_str("# Can be overridden with --json flag\n");
         output.push_str(&format!("format = \"{}\"\n", self.output.format));
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("# Enable colored table output by default\n");
         output.push_str("# true  - Use colors and enhanced styling for tables\n");
         output.push_str("# false - Plain ASCII tables without colors\n");
         output.push_str("# Can be overridden with --colored flag\n");
         output.push_str(&format!("colored = {}\n", self.output.colored));
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("# Number of decimal places for currency display\n");
         output.push_str("# Default: 2 (e.g., $12.34)\n");
         output.push_str("# Increase for more precision, decrease for cleaner display\n");
@@ -191,7 +191,7 @@ impl Config {
             "decimal_places = {}\n",
             self.output.decimal_places
         ));
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("# Date format for table output display\n");
         output.push_str("# Options:\n");
         output.push_str("#   \"yyyy-mm-dd\" - ISO standard format (2024-03-15) - recommended\n");
@@ -199,7 +199,7 @@ impl Config {
         output.push_str("#   \"mm-dd-yyyy\" - American format (03-15-2024)\n");
         output.push_str("# Note: JSON output always uses ISO format regardless of this setting\n");
         output.push_str(&format!("date_format = \"{}\"\n", self.output.date_format));
-        output.push_str("\n");
+        output.push('\n');
 
         // Timezone settings
         output.push_str(
@@ -209,7 +209,7 @@ impl Config {
         output.push_str(
             "# =============================================================================\n",
         );
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("[timezone]\n");
         output.push_str("# Your timezone for date filtering and daily cutoffs\n");
         output.push_str(
@@ -218,7 +218,7 @@ impl Config {
         output.push_str("# Use `timedatectl list-timezones` on Linux to see available timezones\n");
         output.push_str("# Affects when \"today\", \"yesterday\" etc. start and end\n");
         output.push_str(&format!("timezone = \"{}\"\n", self.timezone.timezone));
-        output.push_str("\n");
+        output.push('\n');
         output.push_str("# Hour of day when a new \"day\" begins (0-23)\n");
         output.push_str("# Default: 0 (midnight)\n");
         output.push_str(
@@ -230,7 +230,7 @@ impl Config {
             "daily_cutoff_hour = {}\n",
             self.timezone.daily_cutoff_hour
         ));
-        output.push_str("\n");
+        output.push('\n');
 
         // Final notes
         output.push_str(
@@ -268,8 +268,7 @@ impl Config {
             "general.cost_mode" => {
                 if !["auto", "calculate", "display"].contains(&value) {
                     anyhow::bail!(
-                        "Invalid cost_mode: {}. Must be 'auto', 'calculate', or 'display'",
-                        value
+                        "Invalid cost_mode: {value}. Must be 'auto', 'calculate', or 'display'"
                     );
                 }
                 self.general.cost_mode = value.to_string();
@@ -278,8 +277,7 @@ impl Config {
             "output.format" => {
                 if !["table", "json"].contains(&value) {
                     anyhow::bail!(
-                        "Invalid output format: {}. Must be 'table' or 'json'",
-                        value
+                        "Invalid output format: {value}. Must be 'table' or 'json'"
                     );
                 }
                 self.output.format = value.to_string();
@@ -287,12 +285,12 @@ impl Config {
             "output.colored" => {
                 self.output.colored = value
                     .parse()
-                    .with_context(|| format!("Invalid boolean value: {}", value))?;
+                    .with_context(|| format!("Invalid boolean value: {value}"))?;
             }
             "output.decimal_places" => {
                 let places: u8 = value
                     .parse()
-                    .with_context(|| format!("Invalid decimal places value: {}", value))?;
+                    .with_context(|| format!("Invalid decimal places value: {value}"))?;
                 if places > 10 {
                     anyhow::bail!("Decimal places must be between 0 and 10");
                 }
@@ -302,13 +300,13 @@ impl Config {
             "timezone.daily_cutoff_hour" => {
                 let hour: u8 = value
                     .parse()
-                    .with_context(|| format!("Invalid hour value: {}", value))?;
+                    .with_context(|| format!("Invalid hour value: {value}"))?;
                 if hour > 23 {
                     anyhow::bail!("Hour must be between 0 and 23");
                 }
                 self.timezone.daily_cutoff_hour = hour;
             }
-            _ => anyhow::bail!("Unknown configuration key: {}", key),
+            _ => anyhow::bail!("Unknown configuration key: {key}"),
         }
         Ok(())
     }

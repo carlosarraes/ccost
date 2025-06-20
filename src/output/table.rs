@@ -457,8 +457,8 @@ pub fn apply_table_style_with_color(
         new_result.push('\n');
 
         // Add all data rows except the last
-        for i in 1..lines.len() - 1 {
-            new_result.push_str(lines[i]);
+        for line in lines.iter().take(lines.len() - 1).skip(1) {
+            new_result.push_str(line);
             new_result.push('\n');
         }
 

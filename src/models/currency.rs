@@ -79,7 +79,7 @@ impl CurrencyConverter {
 
         // Parse the simple XML structure manually (ECB XML is predictable)
         // Look for currency='XXX' rate='Y.YY' pattern (ECB uses single quotes)
-        let pattern = format!(r#"currency='{}' rate='([0-9.]+)'"#, currency);
+        let pattern = format!(r#"currency='{currency}' rate='([0-9.]+)'"#);
         let re = regex::Regex::new(&pattern).context("Failed to create regex")?;
 
         if let Some(captures) = re.captures(&xml_text) {
@@ -87,7 +87,7 @@ impl CurrencyConverter {
             let rate: f64 = rate_str.parse().context("Failed to parse exchange rate")?;
             Ok(rate)
         } else {
-            anyhow::bail!("Currency {} not found in ECB data", currency)
+            anyhow::bail!("Currency {currency} not found in ECB data")
         }
     }
 }
@@ -105,14 +105,14 @@ pub fn format_currency(amount: f64, currency: &str, decimal_places: u8) -> Strin
 
     // Format with thousands separators
     let formatted_amount = if decimal_places == 0 {
-        format!("{:.0}", amount)
+        format!("{amount:.0}")
     } else {
         format!("{:.width$}", amount, width = decimal_places as usize)
     };
 
     match currency {
-        "USD" | "GBP" => format!("{}{}", symbol, formatted_amount),
-        "EUR" | "JPY" | "CNY" => format!("{} {}", formatted_amount, symbol),
-        _ => format!("{} {}", formatted_amount, currency),
+        "USD" | "GBP" => format!("{symbol}{formatted_amount}"),
+        "EUR" | "JPY" | "CNY" => format!("{formatted_amount} {symbol}"),
+        _ => format!("{formatted_amount} {currency}"),
     }
 }

@@ -65,7 +65,7 @@ impl PrivacyManager {
             PROJECT_NAMES[index - 1].to_string()
         } else {
             // For more than 24 projects, use numbered format
-            format!("project-{:02}", index)
+            format!("project-{index:02}")
         }
     }
 }
