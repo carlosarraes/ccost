@@ -56,7 +56,21 @@ pub async fn handle_projects_command(
         PathBuf::from(&config.general.claude_projects_path)
     };
 
-    let pricing_manager = PricingManager::new();
+    // Initialize pricing manager based on configuration
+    // Default to static pricing for speed, only use live when explicitly requested
+    let mut pricing_manager = match config.pricing.source.as_str() {
+        "live" => PricingManager::with_live_pricing(),
+        _ => PricingManager::new(), // "auto", "static" or unknown - all use static by default
+    };
+    
+    // Only enable live pricing when explicitly set to "live"
+    pricing_manager.set_live_pricing(config.pricing.source == "live");
+    
+    // Pre-fetch pricing data if live pricing is enabled
+    if let Err(_) = pricing_manager.initialize_live_pricing().await {
+        // If live pricing fails, it will fall back to static during calculations
+    }
+    
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -212,13 +226,13 @@ pub async fn handle_projects_command(
         .map(|enhanced| (enhanced.usage_data, enhanced.project_name))
         .collect();
 
-    // Calculate usage with the tracker
-    let project_usage = match usage_tracker.calculate_usage_with_projects_filtered(
+    // Calculate usage with enhanced pricing (supports live pricing)
+    let (project_usage, pricing_source) = match usage_tracker.calculate_usage_with_projects_filtered_enhanced(
         usage_tuples,
-        &pricing_manager,
+        &mut pricing_manager,
         &usage_filter,
-    ) {
-        Ok(usage) => usage,
+    ).await {
+        Ok((usage, source)) => (usage, source),
         Err(e) => {
             if json_output {
                 println!(
@@ -230,6 +244,13 @@ pub async fn handle_projects_command(
             std::process::exit(1);
         }
     };
+
+    // Display pricing source in verbose mode
+    if verbose && !json_output {
+        if let Some(source) = &pricing_source {
+            println!("Pricing source: {}", source);
+        }
+    }
 
     // Apply remaining filters to the calculated usage
     let mut filtered_usage = apply_usage_filters(project_usage, &usage_filter);
