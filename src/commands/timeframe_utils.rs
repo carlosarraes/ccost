@@ -1,6 +1,7 @@
 // Shared utilities for timeframe-based commands
 use crate::analysis::{
-    CostCalculationMode, TimezoneCalculator, UsageTracker,
+    CostCalculationMode, TimezoneCalculator, UsageTracker, UsageFilter,
+    usage::ProjectUsage,
 };
 use crate::config::Config;
 use crate::models::PricingManager;
@@ -29,7 +30,7 @@ pub struct TimeframeContext {
 
 impl TimeframeContext {
     /// Create a new timeframe context with all necessary components
-    pub fn new(timezone_name: &str, daily_cutoff_hour: u8, date_format: &str) -> anyhow::Result<Self> {
+    pub async fn new(timezone_name: &str, daily_cutoff_hour: u8, date_format: &str) -> anyhow::Result<Self> {
         // Load config
         let config = Config::load().map_err(|e| {
             anyhow::anyhow!("Failed to load configuration: {}", e)
@@ -52,8 +53,21 @@ impl TimeframeContext {
             PathBuf::from(&config.general.claude_projects_path)
         };
 
-        // Initialize components
-        let pricing_manager = PricingManager::new();
+        // Initialize pricing manager based on configuration
+        // Default to static pricing for speed, only use live when explicitly requested
+        let mut pricing_manager = match config.pricing.source.as_str() {
+            "live" => PricingManager::with_live_pricing(),
+            _ => PricingManager::new(), // "auto", "static" or unknown - all use static by default
+        };
+        
+        // Only enable live pricing when explicitly set to "live"
+        pricing_manager.set_live_pricing(config.pricing.source == "live");
+        
+        // Pre-fetch pricing data if live pricing is enabled
+        if let Err(_) = pricing_manager.initialize_live_pricing().await {
+            // If live pricing fails, it will fall back to static during calculations
+        }
+        
         let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
         let parser = JsonlParser::new(projects_dir.clone());
         let dedup_engine = DeduplicationEngine::new();
@@ -270,6 +284,21 @@ impl TimeframeContext {
         }
 
         Ok(())
+    }
+
+    /// Calculate usage with enhanced pricing that supports live pricing data
+    pub async fn calculate_usage_enhanced(
+        &mut self,
+        usage_tuples: Vec<(crate::parser::jsonl::UsageData, String)>,
+        usage_filter: &UsageFilter,
+    ) -> anyhow::Result<(Vec<ProjectUsage>, Option<String>)> {
+        self.usage_tracker
+            .calculate_usage_with_projects_filtered_enhanced(
+                usage_tuples,
+                &mut self.pricing_manager,
+                usage_filter,
+            )
+            .await
     }
 }
 
