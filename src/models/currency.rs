@@ -1,8 +1,29 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use reqwest;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 
-/// Stateless currency conversion manager with ECB API
+/// Cache entry for a single currency conversion rate
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurrencyCacheEntry {
+    /// Exchange rate from USD to this currency
+    pub rate_from_usd: f64,
+    /// Timestamp when this rate was fetched
+    pub timestamp: DateTime<Utc>,
+}
+
+/// Currency conversion cache stored as JSON file
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CurrencyCache {
+    /// Map of currency code to cached rate data
+    pub rates: HashMap<String, CurrencyCacheEntry>,
+}
+
+/// Currency conversion manager with ECB API and 24-hour file-based caching
 pub struct CurrencyConverter {
     client: reqwest::Client,
 }
@@ -19,6 +40,61 @@ impl CurrencyConverter {
         Self { client }
     }
 
+    /// Get path to currency cache file
+    fn get_cache_path() -> Result<PathBuf> {
+        let home = dirs::home_dir().context("Failed to determine home directory")?;
+        Ok(home.join(".config").join("ccost").join("currency_cache.json"))
+    }
+
+    /// Load currency cache from file
+    fn load_cache() -> CurrencyCache {
+        match Self::get_cache_path() {
+            Ok(cache_path) => {
+                if cache_path.exists() {
+                    match fs::read_to_string(&cache_path) {
+                        Ok(contents) => {
+                            match serde_json::from_str::<CurrencyCache>(&contents) {
+                                Ok(cache) => cache,
+                                Err(_) => CurrencyCache::default(), // Invalid cache, start fresh
+                            }
+                        }
+                        Err(_) => CurrencyCache::default(), // Can't read file, start fresh
+                    }
+                } else {
+                    CurrencyCache::default() // No cache file, start fresh
+                }
+            }
+            Err(_) => CurrencyCache::default(), // Can't determine path, start fresh
+        }
+    }
+
+    /// Save currency cache to file
+    fn save_cache(cache: &CurrencyCache) -> Result<()> {
+        let cache_path = Self::get_cache_path()?;
+        
+        // Ensure parent directory exists
+        if let Some(parent) = cache_path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create cache directory: {}", parent.display())
+            })?;
+        }
+
+        let contents = serde_json::to_string_pretty(cache)
+            .context("Failed to serialize currency cache")?;
+
+        fs::write(&cache_path, contents)
+            .with_context(|| format!("Failed to write cache file: {}", cache_path.display()))?;
+
+        Ok(())
+    }
+
+    /// Check if cache entry is still valid (less than 24 hours old)
+    fn is_cache_valid(entry: &CurrencyCacheEntry) -> bool {
+        let now = Utc::now();
+        let age = now.signed_duration_since(entry.timestamp);
+        age.num_hours() < 24
+    }
+
     /// Convert amount from USD to target currency
     pub async fn convert_from_usd(&self, amount: f64, target_currency: &str) -> Result<f64> {
         if target_currency == "USD" {
@@ -29,10 +105,36 @@ impl CurrencyConverter {
         Ok(amount * rate)
     }
 
-    /// Get exchange rate between two currencies
+    /// Get exchange rate between two currencies with caching
     async fn get_exchange_rate(&self, from_currency: &str, to_currency: &str) -> Result<f64> {
-        // Fetch from ECB API (no caching)
-        self.fetch_ecb_rate(from_currency, to_currency).await
+        // Only cache USD to other currency conversions for simplicity
+        if from_currency != "USD" {
+            return self.fetch_ecb_rate(from_currency, to_currency).await;
+        }
+
+        // Load cache
+        let mut cache = Self::load_cache();
+
+        // Check if we have a valid cached rate
+        if let Some(entry) = cache.rates.get(to_currency) {
+            if Self::is_cache_valid(entry) {
+                return Ok(entry.rate_from_usd);
+            }
+        }
+
+        // Cache miss or expired - fetch fresh rate
+        let rate = self.fetch_ecb_rate(from_currency, to_currency).await?;
+
+        // Update cache
+        cache.rates.insert(to_currency.to_string(), CurrencyCacheEntry {
+            rate_from_usd: rate,
+            timestamp: Utc::now(),
+        });
+
+        // Save cache (ignore errors to not fail the conversion)
+        let _ = Self::save_cache(&cache);
+
+        Ok(rate)
     }
 
     /// Fetch exchange rate from ECB API
