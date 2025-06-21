@@ -1,6 +1,6 @@
 // Daily usage breakdown command
-use crate::commands::timeframe_utils::{TimeframeContext, handle_error};
 use crate::analysis::DailyUsageList;
+use crate::commands::timeframe_utils::{TimeframeContext, handle_error};
 use crate::models::currency::CurrencyConverter;
 use crate::output::OutputFormat;
 use crate::utils::{DateFormatter, EnhancedUsageData};
@@ -24,22 +24,24 @@ pub async fn handle_daily_command(
     date_format: &str,
 ) -> anyhow::Result<()> {
     // Initialize context
-    let mut context = match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            handle_error(&e, json_output);
-            return Err(e);
-        }
-    };
+    let mut context =
+        match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format).await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                handle_error(&e, json_output);
+                return Err(e);
+            }
+        };
 
     // Process JSONL files
-    let all_usage_data = match context.process_jsonl_files(project_filter.clone(), verbose, json_output, hidden) {
-        Ok(data) => data,
-        Err(e) => {
-            handle_error(&e, json_output);
-            return Err(e);
-        }
-    };
+    let all_usage_data =
+        match context.process_jsonl_files(project_filter.clone(), verbose, json_output, hidden) {
+            Ok(data) => data,
+            Err(e) => {
+                handle_error(&e, json_output);
+                return Err(e);
+            }
+        };
 
     if all_usage_data.is_empty() {
         if json_output {
@@ -77,7 +79,13 @@ pub async fn handle_daily_command(
     // Convert currencies if needed
     let mut converted_daily_usage = daily_usage_list;
     if target_currency != "USD" {
-        convert_daily_currency(&mut converted_daily_usage, target_currency, verbose, json_output).await?;
+        convert_daily_currency(
+            &mut converted_daily_usage,
+            target_currency,
+            verbose,
+            json_output,
+        )
+        .await?;
     }
 
     // Display results
@@ -85,9 +93,7 @@ pub async fn handle_daily_command(
         match converted_daily_usage.to_json() {
             Ok(json) => println!("{json}"),
             Err(e) => {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#);
                 std::process::exit(1);
             }
         }
@@ -197,9 +203,12 @@ fn group_usage_by_day(
             // Calculate from pricing
             if let Some(pricing) = pricing_manager.get_pricing(&model_name) {
                 let input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input_cost_per_mtok;
-                let output_cost = (output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_mtok;
-                let cache_creation_cost = (cache_creation_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
-                let cache_read_cost = (cache_read_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
+                let output_cost =
+                    (output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_mtok;
+                let cache_creation_cost =
+                    (cache_creation_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
+                let cache_read_cost =
+                    (cache_read_tokens as f64 / 1_000_000.0) * pricing.cache_cost_per_mtok;
                 input_cost + output_cost + cache_creation_cost + cache_read_cost
             } else {
                 0.0
@@ -210,7 +219,8 @@ fn group_usage_by_day(
     }
 
     // Count projects per day
-    let mut project_sets_by_day: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    let mut project_sets_by_day: HashMap<String, std::collections::HashSet<String>> =
+        HashMap::new();
     for enhanced in all_usage_data.iter() {
         if let Some(timestamp_str) = &enhanced.usage_data.timestamp {
             if let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {

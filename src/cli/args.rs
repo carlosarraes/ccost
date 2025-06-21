@@ -49,9 +49,6 @@ pub struct Cli {
     pub command: Option<Commands>,
 }
 
-
-
-
 #[derive(Subcommand)]
 pub enum ConfigAction {
     /// Show current configuration
@@ -122,4 +119,3 @@ pub enum Commands {
         action: ConfigAction,
     },
 }
-

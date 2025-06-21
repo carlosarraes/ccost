@@ -1,7 +1,7 @@
 // Yesterday's usage command
-use crate::commands::timeframe_utils::{TimeframeContext, UsageTimeframe, handle_error};
-use crate::utils::{resolve_filters, apply_usage_filters, print_filter_info};
 use crate::analysis::UsageFilter;
+use crate::commands::timeframe_utils::{TimeframeContext, UsageTimeframe, handle_error};
+use crate::utils::{apply_usage_filters, print_filter_info, resolve_filters};
 
 pub async fn handle_yesterday_command(
     project: Option<String>,
@@ -19,17 +19,24 @@ pub async fn handle_yesterday_command(
     date_format: &str,
 ) -> anyhow::Result<()> {
     // Initialize context
-    let mut context = match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            handle_error(&e, json_output);
-            return Err(e);
-        }
-    };
+    let mut context =
+        match TimeframeContext::new(timezone_name, daily_cutoff_hour, date_format).await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                handle_error(&e, json_output);
+                return Err(e);
+            }
+        };
 
     // Parse timeframe into date filters
-    let (final_project, final_since, final_until, final_model) =
-        resolve_filters(Some(UsageTimeframe::Yesterday), project, since, until, model, &context.timezone_calc);
+    let (final_project, final_since, final_until, final_model) = resolve_filters(
+        Some(UsageTimeframe::Yesterday),
+        project,
+        since,
+        until,
+        model,
+        &context.timezone_calc,
+    );
 
     // Create usage filter
     let usage_filter = UsageFilter {
@@ -44,13 +51,14 @@ pub async fn handle_yesterday_command(
     }
 
     // Process JSONL files
-    let all_usage_data = match context.process_jsonl_files(final_project, verbose, json_output, hidden) {
-        Ok(data) => data,
-        Err(e) => {
-            handle_error(&e, json_output);
-            return Err(e);
-        }
-    };
+    let all_usage_data =
+        match context.process_jsonl_files(final_project, verbose, json_output, hidden) {
+            Ok(data) => data,
+            Err(e) => {
+                handle_error(&e, json_output);
+                return Err(e);
+            }
+        };
 
     if all_usage_data.is_empty() {
         if json_output {
@@ -70,10 +78,10 @@ pub async fn handle_yesterday_command(
         .collect();
 
     // Calculate usage with enhanced pricing (supports live pricing)
-    let (project_usage, pricing_source) = match context.calculate_usage_enhanced(
-        usage_tuples,
-        &usage_filter,
-    ).await {
+    let (project_usage, pricing_source) = match context
+        .calculate_usage_enhanced(usage_tuples, &usage_filter)
+        .await
+    {
         Ok((usage, source)) => (usage, source),
         Err(e) => {
             handle_error(&e, json_output);
@@ -92,11 +100,20 @@ pub async fn handle_yesterday_command(
     let mut filtered_usage = apply_usage_filters(project_usage, &usage_filter);
 
     // Convert currencies if needed
-    if let Err(e) = context.convert_currency(&mut filtered_usage, target_currency, verbose, json_output).await {
+    if let Err(e) = context
+        .convert_currency(&mut filtered_usage, target_currency, verbose, json_output)
+        .await
+    {
         handle_error(&e, json_output);
         return Err(e);
     }
 
     // Display results
-    context.display_results(&filtered_usage, target_currency, decimal_places, json_output, colored)
+    context.display_results(
+        &filtered_usage,
+        target_currency,
+        decimal_places,
+        json_output,
+        colored,
+    )
 }

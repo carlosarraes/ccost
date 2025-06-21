@@ -18,13 +18,13 @@ mod utils;
 // Import CLI types and commands
 use cli::args::{Cli, Commands};
 use commands::config::handle_config_action;
-use commands::projects::handle_projects_command;
-use commands::usage::handle_usage_command;
-use commands::today::handle_today_command;
-use commands::yesterday::handle_yesterday_command;
-use commands::this_week::handle_this_week_command;
-use commands::this_month::handle_this_month_command;
 use commands::daily::handle_daily_command;
+use commands::projects::handle_projects_command;
+use commands::this_month::handle_this_month_command;
+use commands::this_week::handle_this_week_command;
+use commands::today::handle_today_command;
+use commands::usage::handle_usage_command;
+use commands::yesterday::handle_yesterday_command;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -178,4 +178,3 @@ async fn main() -> anyhow::Result<()> {
     }
     Ok(())
 }
-

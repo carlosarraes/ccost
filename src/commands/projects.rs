@@ -6,7 +6,9 @@ use crate::models::currency::CurrencyConverter;
 use crate::output::OutputFormat;
 use crate::parser::deduplication::DeduplicationEngine;
 use crate::parser::jsonl::JsonlParser;
-use crate::utils::{DateFormatter, EnhancedUsageData, apply_usage_filters, maybe_hide_project_name};
+use crate::utils::{
+    DateFormatter, EnhancedUsageData, apply_usage_filters, maybe_hide_project_name,
+};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -21,7 +23,7 @@ pub async fn handle_projects_command(
 ) -> anyhow::Result<()> {
     // Load config for timezone and date format settings
     let config = Config::load().unwrap_or_default();
-    
+
     // Parse comma-separated project names
     let project_filters: Option<HashSet<String>> = projects.map(|p| {
         p.split(',')
@@ -62,15 +64,15 @@ pub async fn handle_projects_command(
         "live" => PricingManager::with_live_pricing(),
         _ => PricingManager::new(), // "auto", "static" or unknown - all use static by default
     };
-    
+
     // Only enable live pricing when explicitly set to "live"
     pricing_manager.set_live_pricing(config.pricing.source == "live");
-    
+
     // Pre-fetch pricing data if live pricing is enabled
     if let Err(_) = pricing_manager.initialize_live_pricing().await {
         // If live pricing fails, it will fall back to static during calculations
     }
-    
+
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -85,7 +87,14 @@ pub async fn handle_projects_command(
 
     if verbose && !json_output {
         if let Some(ref filters) = project_filters {
-            println!("Filtering projects: {}", filters.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+            println!(
+                "Filtering projects: {}",
+                filters
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         } else {
             println!("Showing all projects");
         }
@@ -96,9 +105,7 @@ pub async fn handle_projects_command(
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#);
             } else {
                 eprintln!("Error: Failed to find JSONL files: {e}");
                 eprintln!(
@@ -144,7 +151,7 @@ pub async fn handle_projects_command(
                         continue;
                     }
                 }
-                
+
                 total_messages += parsed_conversation.messages.len();
 
                 // Apply deduplication
@@ -227,17 +234,18 @@ pub async fn handle_projects_command(
         .collect();
 
     // Calculate usage with enhanced pricing (supports live pricing)
-    let (project_usage, pricing_source) = match usage_tracker.calculate_usage_with_projects_filtered_enhanced(
-        usage_tuples,
-        &mut pricing_manager,
-        &usage_filter,
-    ).await {
+    let (project_usage, pricing_source) = match usage_tracker
+        .calculate_usage_with_projects_filtered_enhanced(
+            usage_tuples,
+            &mut pricing_manager,
+            &usage_filter,
+        )
+        .await
+    {
         Ok((usage, source)) => (usage, source),
         Err(e) => {
             if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to calculate usage: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to calculate usage: {e}"}}"#);
             } else {
                 eprintln!("Error: Failed to calculate usage: {e}");
             }
@@ -319,9 +327,7 @@ pub async fn handle_projects_command(
         match filtered_usage.to_json() {
             Ok(json) => println!("{json}"),
             Err(e) => {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#);
                 std::process::exit(1);
             }
         }
@@ -335,6 +341,6 @@ pub async fn handle_projects_command(
             )
         );
     }
-    
+
     Ok(())
 }

@@ -1,7 +1,6 @@
 // Shared utilities for timeframe-based commands
 use crate::analysis::{
-    CostCalculationMode, TimezoneCalculator, UsageTracker, UsageFilter,
-    usage::ProjectUsage,
+    CostCalculationMode, TimezoneCalculator, UsageFilter, UsageTracker, usage::ProjectUsage,
 };
 use crate::config::Config;
 use crate::models::PricingManager;
@@ -9,9 +8,7 @@ use crate::models::currency::CurrencyConverter;
 use crate::output::OutputFormat;
 use crate::parser::deduplication::DeduplicationEngine;
 use crate::parser::jsonl::JsonlParser;
-use crate::utils::{
-    DateFormatter, EnhancedUsageData, maybe_hide_project_name,
-};
+use crate::utils::{DateFormatter, EnhancedUsageData, maybe_hide_project_name};
 use std::path::PathBuf;
 
 // Re-export the UsageTimeframe from usage.rs to avoid duplication
@@ -30,11 +27,14 @@ pub struct TimeframeContext {
 
 impl TimeframeContext {
     /// Create a new timeframe context with all necessary components
-    pub async fn new(timezone_name: &str, daily_cutoff_hour: u8, date_format: &str) -> anyhow::Result<Self> {
+    pub async fn new(
+        timezone_name: &str,
+        daily_cutoff_hour: u8,
+        date_format: &str,
+    ) -> anyhow::Result<Self> {
         // Load config
-        let config = Config::load().map_err(|e| {
-            anyhow::anyhow!("Failed to load configuration: {}", e)
-        })?;
+        let config =
+            Config::load().map_err(|e| anyhow::anyhow!("Failed to load configuration: {}", e))?;
 
         // Initialize date formatter
         let date_formatter = DateFormatter::new(date_format)?;
@@ -59,15 +59,15 @@ impl TimeframeContext {
             "live" => PricingManager::with_live_pricing(),
             _ => PricingManager::new(), // "auto", "static" or unknown - all use static by default
         };
-        
+
         // Only enable live pricing when explicitly set to "live"
         pricing_manager.set_live_pricing(config.pricing.source == "live");
-        
+
         // Pre-fetch pricing data if live pricing is enabled
         if let Err(_) = pricing_manager.initialize_live_pricing().await {
             // If live pricing fails, it will fall back to static during calculations
         }
-        
+
         let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
         let parser = JsonlParser::new(projects_dir.clone());
         let dedup_engine = DeduplicationEngine::new();
@@ -92,18 +92,27 @@ impl TimeframeContext {
         hidden: bool,
     ) -> anyhow::Result<Vec<EnhancedUsageData>> {
         if verbose && !json_output {
-            println!("Searching for JSONL files in: {}", self.projects_dir.display());
+            println!(
+                "Searching for JSONL files in: {}",
+                self.projects_dir.display()
+            );
         }
 
-        let jsonl_files = self.parser.find_jsonl_files().map_err(|e| {
-            anyhow::anyhow!("Failed to find JSONL files: {}", e)
-        })?;
+        let jsonl_files = self
+            .parser
+            .find_jsonl_files()
+            .map_err(|e| anyhow::anyhow!("Failed to find JSONL files: {}", e))?;
 
         if jsonl_files.is_empty() {
             if json_output {
-                println!(r#"{{"status": "warning", "message": "No JSONL files found", "data": []}}"#);
+                println!(
+                    r#"{{"status": "warning", "message": "No JSONL files found", "data": []}}"#
+                );
             } else {
-                println!("No Claude usage data found in {}", self.projects_dir.display());
+                println!(
+                    "No Claude usage data found in {}",
+                    self.projects_dir.display()
+                );
                 println!("Make sure you have conversations saved in Claude Desktop or CLI.");
             }
             return Ok(Vec::new());
@@ -123,8 +132,9 @@ impl TimeframeContext {
             match self.parser.parse_file_with_verbose(&file_path, verbose) {
                 Ok(parsed_conversation) => {
                     // Use unified project name extraction for consistency
-                    let raw_project_name =
-                        self.parser.get_unified_project_name(&file_path, &parsed_conversation.messages);
+                    let raw_project_name = self
+                        .parser
+                        .get_unified_project_name(&file_path, &parsed_conversation.messages);
                     let project_name = maybe_hide_project_name(&raw_project_name, hidden);
 
                     // Apply project filter if specified
@@ -133,11 +143,14 @@ impl TimeframeContext {
                             continue;
                         }
                     }
-                    
+
                     total_messages += parsed_conversation.messages.len();
 
                     // Apply deduplication
-                    match self.dedup_engine.filter_duplicates(parsed_conversation.messages, &project_name) {
+                    match self
+                        .dedup_engine
+                        .filter_duplicates(parsed_conversation.messages, &project_name)
+                    {
                         Ok(unique_data) => {
                             unique_messages += unique_data.len();
 
@@ -152,9 +165,16 @@ impl TimeframeContext {
                         }
                         Err(e) => {
                             if verbose {
-                                let error_msg = format!("Failed to deduplicate file {}: {}", file_path.display(), e);
+                                let error_msg = format!(
+                                    "Failed to deduplicate file {}: {}",
+                                    file_path.display(),
+                                    e
+                                );
                                 if json_output {
-                                    eprintln!(r#"{{"status": "warning", "message": "{}"}}"#, error_msg);
+                                    eprintln!(
+                                        r#"{{"status": "warning", "message": "{}"}}"#,
+                                        error_msg
+                                    );
                                 } else {
                                     eprintln!("Warning: {}", error_msg);
                                 }
@@ -167,7 +187,8 @@ impl TimeframeContext {
                 }
                 Err(e) => {
                     if verbose {
-                        let error_msg = format!("Failed to parse file {}: {}", file_path.display(), e);
+                        let error_msg =
+                            format!("Failed to parse file {}: {}", file_path.display(), e);
                         if json_output {
                             eprintln!(r#"{{"status": "warning", "message": "{}"}}"#, error_msg);
                         } else {
@@ -212,7 +233,10 @@ impl TimeframeContext {
                 }
                 Err(e) => {
                     if verbose {
-                        let error_msg = format!("Failed to convert currency for {}: {}", project.project_name, e);
+                        let error_msg = format!(
+                            "Failed to convert currency for {}: {}",
+                            project.project_name, e
+                        );
                         if json_output {
                             eprintln!(r#"{{"status": "warning", "message": "{}"}}"#, error_msg);
                         } else {
@@ -275,11 +299,7 @@ impl TimeframeContext {
         } else {
             println!(
                 "{}",
-                usage.to_table_with_currency_and_color(
-                    target_currency,
-                    decimal_places,
-                    colored
-                )
+                usage.to_table_with_currency_and_color(target_currency, decimal_places, colored)
             );
         }
 
@@ -305,10 +325,7 @@ impl TimeframeContext {
 /// Handle error display consistently across all commands
 pub fn handle_error(error: &anyhow::Error, json_output: bool) {
     if json_output {
-        println!(
-            r#"{{"status": "error", "message": "{}"}}"#,
-            error
-        );
+        println!(r#"{{"status": "error", "message": "{}"}}"#, error);
     } else {
         eprintln!("Error: {}", error);
     }

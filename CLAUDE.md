@@ -25,3 +25,11 @@ ccost was showing higher costs (~$1250) compared to competitor tools (~$1120) fo
 - Investigate remaining accuracy gap
 - Analyze message patterns that competitor tools deduplicate but ccost doesn't
 - Consider additional filtering or normalization strategies
+
+## Development Workflow
+
+### Before Committing
+Always run these commands before creating any commit:
+1. `cargo fmt` - Format code according to Rust standards
+2. `cargo clippy` - Check for linting issues and warnings
+3. `cargo build` - Ensure code compiles without errors

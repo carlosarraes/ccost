@@ -1,5 +1,5 @@
-use crate::parser::jsonl::{Usage, UsageData};
 use crate::models::{PricingManager, PricingSource};
+use crate::parser::jsonl::{Usage, UsageData};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -35,8 +35,7 @@ pub struct ModelUsage {
     pub message_count: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct UsageFilter {
     pub project_name: Option<String>,
     pub model_name: Option<String>,
@@ -89,13 +88,15 @@ impl UsageTracker {
         let cache_creation_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
         let cache_read_tokens = usage.cache_read_input_tokens.unwrap_or(0);
 
-        let (cost, source) = pricing_manager.calculate_enhanced_cost(
-            model_name,
-            input_tokens,
-            output_tokens,
-            cache_creation_tokens,
-            cache_read_tokens,
-        ).await;
+        let (cost, source) = pricing_manager
+            .calculate_enhanced_cost(
+                model_name,
+                input_tokens,
+                output_tokens,
+                cache_creation_tokens,
+                cache_read_tokens,
+            )
+            .await;
 
         Ok((cost, source))
     }
@@ -270,7 +271,8 @@ impl UsageTracker {
                     if let Some(embedded_cost) = message.cost_usd {
                         (embedded_cost, PricingSource::StaticFallback) // Treat embedded as static
                     } else {
-                        self.calculate_enhanced_cost(usage, &model_name, pricing_manager).await?
+                        self.calculate_enhanced_cost(usage, &model_name, pricing_manager)
+                            .await?
                     }
                 }
             };
@@ -284,13 +286,20 @@ impl UsageTracker {
         let overall_source = if pricing_sources.is_empty() {
             None
         } else {
-            let live_count = pricing_sources.iter().filter(|&s| *s == PricingSource::LiteLLM).count();
+            let live_count = pricing_sources
+                .iter()
+                .filter(|&s| *s == PricingSource::LiteLLM)
+                .count();
             let total_count = pricing_sources.len();
-            
+
             if live_count == total_count {
                 Some("Live (LiteLLM)".to_string())
             } else if live_count > 0 {
-                Some(format!("Mixed ({} live, {} static)", live_count, total_count - live_count))
+                Some(format!(
+                    "Mixed ({} live, {} static)",
+                    live_count,
+                    total_count - live_count
+                ))
             } else {
                 Some("Static".to_string())
             }
@@ -330,7 +339,6 @@ impl UsageTracker {
             .with_context(|| format!("Failed to parse timestamp: {timestamp}"))
     }
 }
-
 
 impl Default for ProjectUsage {
     fn default() -> Self {

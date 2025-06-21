@@ -1,6 +1,6 @@
+use crate::models::litellm::{EnhancedModelPricing, LiteLLMClient, PricingSource};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::models::litellm::{LiteLLMClient, EnhancedModelPricing, PricingSource};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPricing {
@@ -62,7 +62,7 @@ impl PricingManager {
             ModelPricing::new(1.0, 5.0, 0.1),
         );
 
-        Self { 
+        Self {
             pricing_data,
             litellm_client: None,
             enable_live_pricing: false,
@@ -87,15 +87,17 @@ impl PricingManager {
                 // Try to fetch with short timeout to avoid delays
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(5),
-                    client.fetch_pricing_data()
-                ).await {
+                    client.fetch_pricing_data(),
+                )
+                .await
+                {
                     Ok(Ok(_)) => {
                         // Successfully fetched live data
-                    },
+                    }
                     Ok(Err(e)) => {
                         eprintln!("Warning: Failed to fetch live pricing, using static: {}", e);
                         self.enable_live_pricing = false; // Fall back to static
-                    },
+                    }
                     Err(_) => {
                         eprintln!("Warning: Live pricing fetch timed out, using static pricing");
                         self.enable_live_pricing = false; // Fall back to static
@@ -193,8 +195,10 @@ impl PricingManager {
         if self.is_live_pricing_enabled() {
             if let Some(ref client) = self.litellm_client {
                 if client.has_fresh_cache() {
-                    format!("Live (cached {}s ago)", 
-                        client.cache_age_seconds().unwrap_or(0))
+                    format!(
+                        "Live (cached {}s ago)",
+                        client.cache_age_seconds().unwrap_or(0)
+                    )
                 } else {
                     "Live (will fetch fresh data)".to_string()
                 }
@@ -352,17 +356,20 @@ mod tests {
     fn test_pricing_manager_with_live_pricing() {
         let manager = PricingManager::with_live_pricing();
         assert!(manager.is_live_pricing_enabled());
-        assert_eq!(manager.get_pricing_source_info(), "Live (will fetch fresh data)");
+        assert_eq!(
+            manager.get_pricing_source_info(),
+            "Live (will fetch fresh data)"
+        );
     }
 
     #[test]
     fn test_pricing_manager_set_live_pricing() {
         let mut manager = PricingManager::new();
         assert!(!manager.is_live_pricing_enabled());
-        
+
         manager.set_live_pricing(true);
         assert!(manager.is_live_pricing_enabled());
-        
+
         manager.set_live_pricing(false);
         assert!(!manager.is_live_pricing_enabled());
     }
@@ -370,9 +377,11 @@ mod tests {
     #[tokio::test]
     async fn test_enhanced_pricing_fallback() {
         let mut manager = PricingManager::new();
-        
+
         // Without live pricing, should use static fallback
-        let pricing = manager.get_enhanced_pricing("claude-sonnet-4-20250514").await;
+        let pricing = manager
+            .get_enhanced_pricing("claude-sonnet-4-20250514")
+            .await;
         assert_eq!(pricing.source, PricingSource::StaticFallback);
         assert_eq!(pricing.input_cost_per_mtok, 3.0);
         assert_eq!(pricing.output_cost_per_mtok, 15.0);
@@ -381,15 +390,11 @@ mod tests {
     #[tokio::test]
     async fn test_calculate_enhanced_cost() {
         let mut manager = PricingManager::new();
-        
-        let (cost, source) = manager.calculate_enhanced_cost(
-            "claude-sonnet-4-20250514", 
-            1_000_000, 
-            1_000_000, 
-            0, 
-            0
-        ).await;
-        
+
+        let (cost, source) = manager
+            .calculate_enhanced_cost("claude-sonnet-4-20250514", 1_000_000, 1_000_000, 0, 0)
+            .await;
+
         assert_eq!(source, PricingSource::StaticFallback);
         let expected = 3.0 + 15.0; // 18.0
         assert!(

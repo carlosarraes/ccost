@@ -43,7 +43,10 @@ impl CurrencyConverter {
     /// Get path to currency cache file
     fn get_cache_path() -> Result<PathBuf> {
         let home = dirs::home_dir().context("Failed to determine home directory")?;
-        Ok(home.join(".config").join("ccost").join("currency_cache.json"))
+        Ok(home
+            .join(".config")
+            .join("ccost")
+            .join("currency_cache.json"))
     }
 
     /// Load currency cache from file
@@ -71,7 +74,7 @@ impl CurrencyConverter {
     /// Save currency cache to file
     fn save_cache(cache: &CurrencyCache) -> Result<()> {
         let cache_path = Self::get_cache_path()?;
-        
+
         // Ensure parent directory exists
         if let Some(parent) = cache_path.parent() {
             fs::create_dir_all(parent).with_context(|| {
@@ -79,8 +82,8 @@ impl CurrencyConverter {
             })?;
         }
 
-        let contents = serde_json::to_string_pretty(cache)
-            .context("Failed to serialize currency cache")?;
+        let contents =
+            serde_json::to_string_pretty(cache).context("Failed to serialize currency cache")?;
 
         fs::write(&cache_path, contents)
             .with_context(|| format!("Failed to write cache file: {}", cache_path.display()))?;
@@ -126,10 +129,13 @@ impl CurrencyConverter {
         let rate = self.fetch_ecb_rate(from_currency, to_currency).await?;
 
         // Update cache
-        cache.rates.insert(to_currency.to_string(), CurrencyCacheEntry {
-            rate_from_usd: rate,
-            timestamp: Utc::now(),
-        });
+        cache.rates.insert(
+            to_currency.to_string(),
+            CurrencyCacheEntry {
+                rate_from_usd: rate,
+                timestamp: Utc::now(),
+            },
+        );
 
         // Save cache (ignore errors to not fail the conversion)
         let _ = Self::save_cache(&cache);

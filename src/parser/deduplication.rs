@@ -4,19 +4,19 @@ use std::collections::HashSet;
 use super::jsonl::UsageData;
 
 /// Deduplication engine for handling branched conversations and billing accuracy
-/// 
-/// This is the core value proposition of ccost - solving the branching problem while 
+///
+/// This is the core value proposition of ccost - solving the branching problem while
 /// maintaining billing accuracy through proper API call identification.
 ///
 /// # Deduplication Strategy (TASK-051)
-/// 
+///
 /// Uses requestId-priority strategy for optimal billing accuracy alignment:
 /// 1. **Preferred**: `message.id + requestId` - matches actual API billing identifiers
 /// 2. **Fallback**: `message.id + sessionId` - legacy compatibility for older data
 /// 3. **Fail-safe**: No hash generation without message.id and at least one identifier
 ///
 /// # Hash Collision Prevention
-/// 
+///
 /// Uses prefixed hash formats to prevent collisions between different identifier types:
 /// - `req:{message_id}:{request_id}` - Modern requestId-based hashes
 /// - `session:{message_id}:{session_id}` - Legacy sessionId-based hashes
@@ -36,28 +36,28 @@ impl DeduplicationEngine {
     }
 
     /// Generate unique hash from message identifiers using requestId priority strategy
-    /// 
+    ///
     /// # TASK-051 Implementation
-    /// 
+    ///
     /// This function implements the new deduplication strategy that prioritizes requestId
     /// for better billing accuracy alignment with competitor tools and actual API billing.
-    /// 
+    ///
     /// # Priority Hierarchy
-    /// 
-    /// 1. **requestId Priority**: When both requestId and sessionId are available, 
+    ///
+    /// 1. **requestId Priority**: When both requestId and sessionId are available,
     ///    requestId takes priority as it represents the actual billable API call identifier
     /// 2. **sessionId Fallback**: When requestId is missing but sessionId is available,
     ///    falls back to sessionId for legacy compatibility
     /// 3. **Fail-safe**: Returns None when message.id is missing or both identifiers are missing
-    /// 
+    ///
     /// # Hash Format
-    /// 
-    /// - Modern: `req:{message_id}:{request_id}` 
+    ///
+    /// - Modern: `req:{message_id}:{request_id}`
     /// - Legacy: `session:{message_id}:{session_id}`
     /// - Prefixes prevent hash collisions between different identifier types
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// Uses simple string concatenation for O(1) performance and deterministic results.
     /// No cryptographic hashing needed as identifiers are already unique.
     pub fn generate_hash(
@@ -78,7 +78,9 @@ impl DeduplicationEngine {
     /// Check if a message has already been processed
     pub fn is_duplicate(&self, message: &UsageData) -> bool {
         let message_id = message.message.as_ref().and_then(|m| m.id.clone());
-        if let Some(hash) = Self::generate_hash(&message_id, &message.request_id, &message.session_id) {
+        if let Some(hash) =
+            Self::generate_hash(&message_id, &message.request_id, &message.session_id)
+        {
             self.seen_hashes.contains(&hash)
         } else {
             false // Messages without proper IDs are not considered duplicates
@@ -88,7 +90,9 @@ impl DeduplicationEngine {
     /// Mark a message as processed
     pub fn mark_as_processed(&mut self, message: &UsageData, _project_name: &str) -> Result<bool> {
         let message_id = message.message.as_ref().and_then(|m| m.id.clone());
-        if let Some(hash) = Self::generate_hash(&message_id, &message.request_id, &message.session_id) {
+        if let Some(hash) =
+            Self::generate_hash(&message_id, &message.request_id, &message.session_id)
+        {
             // Check if already exists
             if self.seen_hashes.contains(&hash) {
                 return Ok(false); // Already processed
@@ -121,7 +125,9 @@ impl DeduplicationEngine {
             }
 
             let message_id = message.message.as_ref().and_then(|m| m.id.clone());
-            if let Some(_hash) = Self::generate_hash(&message_id, &message.request_id, &message.session_id) {
+            if let Some(_hash) =
+                Self::generate_hash(&message_id, &message.request_id, &message.session_id)
+            {
                 self.mark_as_processed(&message, project_name)?;
                 unique_messages.push(message);
                 stats.unique_messages += 1;
@@ -258,7 +264,8 @@ mod tests {
 
     #[test]
     fn test_generate_hash_missing_message_id() {
-        let hash = DeduplicationEngine::generate_hash(&None, &None, &Some("session-456".to_string()));
+        let hash =
+            DeduplicationEngine::generate_hash(&None, &None, &Some("session-456".to_string()));
 
         assert!(hash.is_none());
     }
@@ -447,7 +454,7 @@ mod tests {
         // but message.id is available (common in Claude JSONL data)
         let hash1 = DeduplicationEngine::generate_hash(
             &Some("msg_01ABC123".to_string()), // message.id is available
-            &None, // request_id is None
+            &None,                             // request_id is None
             &Some("session-123".to_string()),  // session_id is available
         );
 
@@ -481,7 +488,8 @@ mod tests {
     #[test]
     fn test_message_id_only_fallback() {
         // Test scenario where only message.id is available (should fail)
-        let hash = DeduplicationEngine::generate_hash(&Some("msg_01ABC123".to_string()), &None, &None);
+        let hash =
+            DeduplicationEngine::generate_hash(&Some("msg_01ABC123".to_string()), &None, &None);
 
         assert!(
             hash.is_none(),
@@ -492,7 +500,8 @@ mod tests {
     #[test]
     fn test_session_id_only_fallback() {
         // Test scenario where only session_id is available
-        let hash = DeduplicationEngine::generate_hash(&None, &None, &Some("session-123".to_string()));
+        let hash =
+            DeduplicationEngine::generate_hash(&None, &None, &Some("session-123".to_string()));
 
         assert!(
             hash.is_none(),
@@ -585,12 +594,12 @@ mod tests {
 
         let msg1 = create_test_message_with_message_id(
             Some("uuid-1".to_string()),
-            Some("req-bill-123".to_string()),  // Same requestId
+            Some("req-bill-123".to_string()), // Same requestId
             Some("msg-1".to_string()),
         );
-        
+
         let mut msg2 = msg1.clone();
-        msg2.session_id = Some("different-session".to_string());  // Different sessionId
+        msg2.session_id = Some("different-session".to_string()); // Different sessionId
 
         // First message should be processed
         assert!(engine.mark_as_processed(&msg1, "test_project").unwrap());
@@ -608,12 +617,12 @@ mod tests {
 
         let msg1 = create_test_message_with_message_id(
             Some("uuid-1".to_string()),
-            Some("req-bill-123".to_string()),  // Different requestId
+            Some("req-bill-123".to_string()), // Different requestId
             Some("msg-1".to_string()),
         );
-        
+
         let mut msg2 = msg1.clone();
-        msg2.request_id = Some("req-bill-456".to_string());  // Different requestId
+        msg2.request_id = Some("req-bill-456".to_string()); // Different requestId
 
         // Both messages should be processed (different requestIds)
         assert!(engine.mark_as_processed(&msg1, "test_project").unwrap());
@@ -629,14 +638,18 @@ mod tests {
         // Legacy message without requestId
         let legacy_msg1 = create_test_message_with_message_id(
             Some("uuid-1".to_string()),
-            None,  // No requestId (legacy)
+            None, // No requestId (legacy)
             Some("msg-1".to_string()),
         );
-        
+
         let legacy_msg2 = legacy_msg1.clone();
 
         // Legacy messages should still be deduplicated using sessionId fallback
-        assert!(engine.mark_as_processed(&legacy_msg1, "test_project").unwrap());
+        assert!(
+            engine
+                .mark_as_processed(&legacy_msg1, "test_project")
+                .unwrap()
+        );
         assert!(engine.is_duplicate(&legacy_msg2));
     }
 
@@ -655,14 +668,22 @@ mod tests {
         // Legacy message without requestId but same other identifiers
         let legacy_msg = create_test_message_with_message_id(
             Some("uuid-1".to_string()),
-            None,  // No requestId
+            None, // No requestId
             Some("msg-1".to_string()),
         );
 
         // These should NOT be duplicates (different hash strategies)
-        assert!(engine.mark_as_processed(&modern_msg, "test_project").unwrap());
+        assert!(
+            engine
+                .mark_as_processed(&modern_msg, "test_project")
+                .unwrap()
+        );
         assert!(!engine.is_duplicate(&legacy_msg));
-        assert!(engine.mark_as_processed(&legacy_msg, "test_project").unwrap());
+        assert!(
+            engine
+                .mark_as_processed(&legacy_msg, "test_project")
+                .unwrap()
+        );
     }
 
     #[test]
@@ -672,13 +693,15 @@ mod tests {
             &Some("msg-123".to_string()),
             &Some("id-456".to_string()),
             &None,
-        ).unwrap();
+        )
+        .unwrap();
 
         let hash_with_session = DeduplicationEngine::generate_hash(
             &Some("msg-123".to_string()),
             &None,
             &Some("id-456".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Even with same ID value, hashes should be different due to prefixes
         assert_ne!(hash_with_request, hash_with_session);

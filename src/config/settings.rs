@@ -39,9 +39,9 @@ pub struct TimezoneConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PricingConfig {
-    pub source: String,           // "static", "live", "auto"
-    pub cache_ttl_minutes: u32,   // Cache time-to-live in minutes
-    pub offline_fallback: bool,   // Whether to fallback to static pricing offline
+    pub source: String,         // "static", "live", "auto"
+    pub cache_ttl_minutes: u32, // Cache time-to-live in minutes
+    pub offline_fallback: bool, // Whether to fallback to static pricing offline
 }
 
 impl Default for Config {
@@ -257,7 +257,9 @@ impl Config {
         output.push_str("[pricing]\n");
         output.push_str("# Pricing data source for cost calculations:\n");
         output.push_str("#   \"static\" - Use embedded pricing data (fast, may be outdated)\n");
-        output.push_str("#   \"live\"   - Always fetch latest pricing from LiteLLM GitHub repository\n");
+        output.push_str(
+            "#   \"live\"   - Always fetch latest pricing from LiteLLM GitHub repository\n",
+        );
         output.push_str("#   \"auto\"   - Use live pricing with offline fallback (recommended)\n");
         output.push_str("# Live pricing provides granular cache costs (creation vs read rates)\n");
         output.push_str(&format!("source = \"{}\"\n", self.pricing.source));
@@ -323,9 +325,7 @@ impl Config {
             "currency.default_currency" => self.currency.default_currency = value.to_string(),
             "output.format" => {
                 if !["table", "json"].contains(&value) {
-                    anyhow::bail!(
-                        "Invalid output format: {value}. Must be 'table' or 'json'"
-                    );
+                    anyhow::bail!("Invalid output format: {value}. Must be 'table' or 'json'");
                 }
                 self.output.format = value.to_string();
             }

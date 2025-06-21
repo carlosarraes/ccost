@@ -22,7 +22,8 @@ pub enum UsageTimeframe {
     ThisWeek,
     ThisMonth,
     Daily { days: u32 },
-}pub async fn handle_usage_command(
+}
+pub async fn handle_usage_command(
     timeframe: Option<UsageTimeframe>,
     project: Option<String>,
     since: Option<String>,
@@ -104,24 +105,21 @@ pub enum UsageTimeframe {
         "live" => PricingManager::with_live_pricing(),
         _ => PricingManager::new(), // "auto", "static" or unknown - all use static by default
     };
-    
+
     // Only enable live pricing when explicitly set to "live"
     pricing_manager.set_live_pricing(config_for_projects.pricing.source == "live");
-    
+
     // Pre-fetch pricing data if live pricing is enabled
     if let Err(_) = pricing_manager.initialize_live_pricing().await {
         // If live pricing fails, it will fall back to static during calculations
     }
-    
+
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
 
     // Check if this is a daily command - requires special handling
-    if let Some(UsageTimeframe::Daily {
-        days,
-    }) = &timeframe
-    {
+    if let Some(UsageTimeframe::Daily { days }) = &timeframe {
         handle_daily_usage_command(
             *days,
             project,
@@ -164,9 +162,7 @@ pub enum UsageTimeframe {
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#);
             } else {
                 eprintln!("Error: Failed to find JSONL files: {e}");
                 eprintln!(
@@ -208,9 +204,10 @@ pub enum UsageTimeframe {
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = final_project
-                    && raw_project_name != *filter_project {
-                        continue;
-                    }
+                    && raw_project_name != *filter_project
+                {
+                    continue;
+                }
                 total_messages += parsed_conversation.messages.len();
 
                 // Apply deduplication
@@ -294,17 +291,18 @@ pub enum UsageTimeframe {
         .collect();
 
     // Calculate usage with enhanced pricing (supports live pricing)
-    let (project_usage, pricing_source) = match usage_tracker.calculate_usage_with_projects_filtered_enhanced(
-        usage_tuples,
-        &mut pricing_manager,
-        &usage_filter,
-    ).await {
+    let (project_usage, pricing_source) = match usage_tracker
+        .calculate_usage_with_projects_filtered_enhanced(
+            usage_tuples,
+            &mut pricing_manager,
+            &usage_filter,
+        )
+        .await
+    {
         Ok((usage, source)) => (usage, source),
         Err(e) => {
             if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to calculate usage: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to calculate usage: {e}"}}"#);
             } else {
                 eprintln!("Error: Failed to calculate usage: {e}");
             }
@@ -386,9 +384,7 @@ pub enum UsageTimeframe {
         match filtered_usage.to_json() {
             Ok(json) => println!("{json}"),
             Err(e) => {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#);
                 std::process::exit(1);
             }
         }
@@ -470,15 +466,15 @@ pub async fn handle_daily_usage_command(
         "live" => PricingManager::with_live_pricing(),
         _ => PricingManager::new(), // "auto", "static" or unknown - all use static by default
     };
-    
+
     // Only enable live pricing when explicitly set to "live"
     pricing_manager.set_live_pricing(config_for_projects.pricing.source == "live");
-    
+
     // Pre-fetch pricing data if live pricing is enabled
     if let Err(_) = pricing_manager.initialize_live_pricing().await {
         // If live pricing fails, it will fall back to static during calculations
     }
-    
+
     let usage_tracker = UsageTracker::new(CostCalculationMode::Auto);
     let parser = JsonlParser::new(projects_dir.clone());
     let mut dedup_engine = DeduplicationEngine::new();
@@ -491,9 +487,7 @@ pub async fn handle_daily_usage_command(
         Ok(files) => files,
         Err(e) => {
             if json_output {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to find JSONL files: {e}"}}"#);
             } else {
                 eprintln!("Error: Failed to find JSONL files: {e}");
                 eprintln!(
@@ -535,9 +529,10 @@ pub async fn handle_daily_usage_command(
 
                 // Apply project filter if specified
                 if let Some(ref filter_project) = project_filter
-                    && raw_project_name != *filter_project {
-                        continue;
-                    }
+                    && raw_project_name != *filter_project
+                {
+                    continue;
+                }
                 total_messages += parsed_conversation.messages.len();
 
                 // Apply deduplication
@@ -633,9 +628,10 @@ pub async fn handle_daily_usage_command(
             .unwrap_or_else(|| "unknown".to_string());
 
         if let Some(ref filter_model) = model_filter
-            && model_name != *filter_model {
-                continue;
-            }
+            && model_name != *filter_model
+        {
+            continue;
+        }
 
         // Parse timestamp and extract date
         let date_key = if let Some(timestamp_str) = &message.timestamp {
@@ -714,19 +710,20 @@ pub async fn handle_daily_usage_command(
         HashMap::new();
     for enhanced in all_usage_data.iter() {
         if let Some(timestamp_str) = &enhanced.usage_data.timestamp
-            && let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str) {
-                let date_key = if json_output {
-                    date_formatter.format_naive_date_for_json(&message_time.date_naive())
-                } else {
-                    date_formatter.format_naive_date_for_table(&message_time.date_naive())
-                };
-                if daily_usage_map.contains_key(&date_key) {
-                    project_sets_by_day
-                        .entry(date_key)
-                        .or_default()
-                        .insert(enhanced.project_name.clone());
-                }
+            && let Ok(message_time) = usage_tracker.parse_timestamp(timestamp_str)
+        {
+            let date_key = if json_output {
+                date_formatter.format_naive_date_for_json(&message_time.date_naive())
+            } else {
+                date_formatter.format_naive_date_for_table(&message_time.date_naive())
+            };
+            if daily_usage_map.contains_key(&date_key) {
+                project_sets_by_day
+                    .entry(date_key)
+                    .or_default()
+                    .insert(enhanced.project_name.clone());
             }
+        }
     }
 
     // Update projects count
@@ -792,9 +789,7 @@ pub async fn handle_daily_usage_command(
         match daily_usage_list.to_json() {
             Ok(json) => println!("{json}"),
             Err(e) => {
-                println!(
-                    r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#
-                );
+                println!(r#"{{"status": "error", "message": "Failed to serialize results: {e}"}}"#);
                 std::process::exit(1);
             }
         }

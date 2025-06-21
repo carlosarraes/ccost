@@ -35,9 +35,10 @@ where
                     // Check if this is a text content block
                     if let (Some(Value::String(content_type)), Some(Value::String(text))) =
                         (obj.get("type"), obj.get("text"))
-                        && content_type == "text" {
-                            text_parts.push(text.clone());
-                        }
+                        && content_type == "text"
+                    {
+                        text_parts.push(text.clone());
+                    }
                     // For tool_use blocks, we could extract the tool name/input if needed
                     // but for now we'll just skip them as they don't contribute to text content
                 }
@@ -144,7 +145,6 @@ impl JsonlParser {
         let mut _skipped_lines = 0;
 
         for (_total_lines, (line_num, line_result)) in reader.lines().enumerate().enumerate() {
-
             match line_result {
                 Ok(line) => {
                     if line.trim().is_empty() {
@@ -202,17 +202,19 @@ impl JsonlParser {
 
         // Validate timestamp field - skip only if present but empty
         if let Some(ref timestamp) = usage_data.timestamp
-            && timestamp.is_empty() {
-                return Ok(None); // Skip entries with empty timestamps
-            }
+            && timestamp.is_empty()
+        {
+            return Ok(None); // Skip entries with empty timestamps
+        }
         // If timestamp is None, we'll continue processing - it's now optional
 
         // Filter out synthetic model entries
         if let Some(ref message) = usage_data.message
             && let Some(ref model) = message.model
-                && model == "<synthetic>" {
-                    return Ok(None); // Skip synthetic entries
-                }
+            && model == "<synthetic>"
+        {
+            return Ok(None); // Skip synthetic entries
+        }
 
         // For deduplication purposes, we prefer both uuid and request_id/session_id
         // Note: Missing UUIDs/requestIds will be handled by deduplication engine
@@ -229,15 +231,16 @@ impl JsonlParser {
         // If usage field is empty but message has usage (Claude Code format)
         if usage_data.usage.is_none()
             && let Some(ref message) = usage_data.message
-                && let Some(ref claude_usage) = message.usage {
-                    // Convert Claude Code usage to our standard format
-                    usage_data.usage = Some(Usage {
-                        input_tokens: claude_usage.input_tokens,
-                        output_tokens: claude_usage.output_tokens,
-                        cache_creation_input_tokens: claude_usage.cache_creation_input_tokens,
-                        cache_read_input_tokens: claude_usage.cache_read_input_tokens,
-                    });
-                }
+            && let Some(ref claude_usage) = message.usage
+        {
+            // Convert Claude Code usage to our standard format
+            usage_data.usage = Some(Usage {
+                input_tokens: claude_usage.input_tokens,
+                output_tokens: claude_usage.output_tokens,
+                cache_creation_input_tokens: claude_usage.cache_creation_input_tokens,
+                cache_read_input_tokens: claude_usage.cache_read_input_tokens,
+            });
+        }
 
         usage_data
     }
@@ -249,9 +252,10 @@ impl JsonlParser {
         // Handle special cases like .config/nvim -> nvim
         if let Some(parent) = path.parent()
             && let Some(parent_name) = parent.file_name().and_then(|n| n.to_str())
-                && parent_name == ".config" {
-                    return path.file_name()?.to_str().map(|s| s.to_string());
-                }
+            && parent_name == ".config"
+        {
+            return path.file_name()?.to_str().map(|s| s.to_string());
+        }
 
         // Default: use the last directory component
         path.file_name()?.to_str().map(|s| s.to_string())
@@ -263,13 +267,15 @@ impl JsonlParser {
         // Priority 1: Try to extract smart name from cwd/originalCwd in messages
         for message in messages {
             if let Some(ref cwd) = message.cwd
-                && let Some(project_name) = self.extract_project_name_from_path(cwd) {
-                    return project_name;
-                }
+                && let Some(project_name) = self.extract_project_name_from_path(cwd)
+            {
+                return project_name;
+            }
             if let Some(ref original_cwd) = message.original_cwd
-                && let Some(project_name) = self.extract_project_name_from_path(original_cwd) {
-                    return project_name;
-                }
+                && let Some(project_name) = self.extract_project_name_from_path(original_cwd)
+            {
+                return project_name;
+            }
         }
 
         // Priority 2: Fallback to directory-based extraction

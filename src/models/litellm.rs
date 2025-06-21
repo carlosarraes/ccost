@@ -1,13 +1,14 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use std::fs;
-use std::path::PathBuf;
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
-const LITELLM_PRICING_URL: &str = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
+const LITELLM_PRICING_URL: &str =
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 const CACHE_TTL_SECONDS: u64 = 3600; // 1 hour
 const PERSISTENT_CACHE_TTL_HOURS: i64 = 24; // 24 hours for file cache
 
@@ -76,8 +77,10 @@ impl EnhancedModelPricing {
     ) -> f64 {
         let input_cost = (input_tokens as f64 / 1_000_000.0) * self.input_cost_per_mtok;
         let output_cost = (output_tokens as f64 / 1_000_000.0) * self.output_cost_per_mtok;
-        let cache_creation_cost = (cache_creation_tokens as f64 / 1_000_000.0) * self.cache_creation_cost_per_mtok;
-        let cache_read_cost = (cache_read_tokens as f64 / 1_000_000.0) * self.cache_read_cost_per_mtok;
+        let cache_creation_cost =
+            (cache_creation_tokens as f64 / 1_000_000.0) * self.cache_creation_cost_per_mtok;
+        let cache_read_cost =
+            (cache_read_tokens as f64 / 1_000_000.0) * self.cache_read_cost_per_mtok;
 
         input_cost + output_cost + cache_creation_cost + cache_read_cost
     }
@@ -143,7 +146,10 @@ impl LiteLLMClient {
     /// Get path to persistent LiteLLM cache file
     fn get_persistent_cache_path() -> Result<PathBuf> {
         let home = dirs::home_dir().context("Failed to determine home directory")?;
-        Ok(home.join(".config").join("ccost").join("litellm_cache.json"))
+        Ok(home
+            .join(".config")
+            .join("ccost")
+            .join("litellm_cache.json"))
     }
 
     /// Load persistent cache from file
@@ -177,7 +183,7 @@ impl LiteLLMClient {
     /// Save persistent cache to file
     fn save_persistent_cache(data: &LiteLLMPricingData) -> Result<()> {
         let cache_path = Self::get_persistent_cache_path()?;
-        
+
         // Ensure parent directory exists
         if let Some(parent) = cache_path.parent() {
             fs::create_dir_all(parent).with_context(|| {
@@ -234,8 +240,8 @@ impl LiteLLMClient {
             .context("Failed to read LiteLLM response text")?;
 
         // Parse the raw JSON and filter out non-model entries
-        let raw_json: serde_json::Value = serde_json::from_str(&response_text)
-            .with_context(|| {
+        let raw_json: serde_json::Value =
+            serde_json::from_str(&response_text).with_context(|| {
                 let preview = if response_text.len() > 200 {
                     &response_text[..200]
                 } else {
@@ -252,7 +258,7 @@ impl LiteLLMClient {
                 if key == "sample_spec" || key.starts_with("_") {
                     continue;
                 }
-                
+
                 // Try to parse as model data
                 if let Ok(model_data) = serde_json::from_value::<LiteLLMModelData>(value) {
                     models.insert(key, model_data);
@@ -273,14 +279,17 @@ impl LiteLLMClient {
     }
 
     /// Get pricing for a specific model from LiteLLM data
-    pub async fn get_model_pricing(&mut self, model_name: &str) -> Result<Option<EnhancedModelPricing>> {
+    pub async fn get_model_pricing(
+        &mut self,
+        model_name: &str,
+    ) -> Result<Option<EnhancedModelPricing>> {
         let pricing_data = self.fetch_pricing_data().await?;
 
         if let Some(model_data) = pricing_data.models.get(model_name) {
             // Convert per-token costs to per-million-token costs
             let input_cost = model_data.input_cost_per_token.unwrap_or(0.0) * 1_000_000.0;
             let output_cost = model_data.output_cost_per_token.unwrap_or(0.0) * 1_000_000.0;
-            
+
             // Handle cache pricing with fallback logic
             let cache_creation_cost = model_data
                 .cache_creation_input_token_cost
@@ -317,10 +326,10 @@ impl LiteLLMClient {
             _ => {
                 // Static fallback pricing (Claude 3.5 Sonnet rates)
                 EnhancedModelPricing::new(
-                    3.0,   // input_cost_per_mtok
-                    15.0,  // output_cost_per_mtok
-                    0.75,  // cache_creation_cost_per_mtok (25% of input)
-                    0.30,  // cache_read_cost_per_mtok (10% of input)
+                    3.0,  // input_cost_per_mtok
+                    15.0, // output_cost_per_mtok
+                    0.75, // cache_creation_cost_per_mtok (25% of input)
+                    0.30, // cache_read_cost_per_mtok (10% of input)
                     PricingSource::StaticFallback,
                 )
             }
@@ -329,12 +338,16 @@ impl LiteLLMClient {
 
     /// Check if cache is available and fresh
     pub fn has_fresh_cache(&self) -> bool {
-        self.cache.as_ref().map_or(false, |cache| !cache.is_expired())
+        self.cache
+            .as_ref()
+            .map_or(false, |cache| !cache.is_expired())
     }
 
     /// Get cache age in seconds
     pub fn cache_age_seconds(&self) -> Option<u64> {
-        self.cache.as_ref().map(|cache| cache.timestamp.elapsed().as_secs())
+        self.cache
+            .as_ref()
+            .map(|cache| cache.timestamp.elapsed().as_secs())
     }
 }
 
@@ -350,10 +363,8 @@ mod tests {
 
     #[test]
     fn test_enhanced_model_pricing_creation() {
-        let pricing = EnhancedModelPricing::new(
-            3.0, 15.0, 0.75, 0.30, PricingSource::LiteLLM
-        );
-        
+        let pricing = EnhancedModelPricing::new(3.0, 15.0, 0.75, 0.30, PricingSource::LiteLLM);
+
         assert_eq!(pricing.input_cost_per_mtok, 3.0);
         assert_eq!(pricing.output_cost_per_mtok, 15.0);
         assert_eq!(pricing.cache_creation_cost_per_mtok, 0.75);
@@ -363,9 +374,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_pricing_cost_calculation() {
-        let pricing = EnhancedModelPricing::new(
-            3.0, 15.0, 0.75, 0.30, PricingSource::LiteLLM
-        );
+        let pricing = EnhancedModelPricing::new(3.0, 15.0, 0.75, 0.30, PricingSource::LiteLLM);
 
         // Test with 1M tokens each
         let cost = pricing.calculate_cost(1_000_000, 1_000_000, 1_000_000, 1_000_000);
@@ -384,7 +393,7 @@ mod tests {
             models: HashMap::new(),
         };
         let cache = CacheEntry::new(data);
-        
+
         // Fresh cache should not be expired
         assert!(!cache.is_expired());
     }

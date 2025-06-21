@@ -52,9 +52,7 @@ pub fn resolve_filters(
             let start = match days_ago.and_hms_opt(0, 0, 0) {
                 Some(naive_dt) => Utc.from_utc_datetime(&naive_dt),
                 None => {
-                    eprintln!(
-                        "Warning: Failed to create start datetime for {days} days ago"
-                    );
+                    eprintln!("Warning: Failed to create start datetime for {days} days ago");
                     Utc::now() // Fallback to current time
                 }
             };

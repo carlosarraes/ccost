@@ -56,9 +56,7 @@ pub fn handle_config_action(action: ConfigAction, json_output: bool) {
             }
             Err(e) => {
                 if json_output {
-                    println!(
-                        r#"{{"status": "error", "message": "Failed to load config: {e}"}}"#
-                    );
+                    println!(r#"{{"status": "error", "message": "Failed to load config: {e}"}}"#);
                 } else {
                     eprintln!("Error: Failed to load config: {e}");
                 }
@@ -101,9 +99,7 @@ pub fn handle_config_action(action: ConfigAction, json_output: bool) {
             },
             Err(e) => {
                 if json_output {
-                    println!(
-                        r#"{{"status": "error", "message": "Failed to load config: {e}"}}"#
-                    );
+                    println!(r#"{{"status": "error", "message": "Failed to load config: {e}"}}"#);
                 } else {
                     eprintln!("Error: Failed to load config: {e}");
                 }
